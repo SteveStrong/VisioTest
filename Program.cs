@@ -14,6 +14,8 @@ using DocumentFormat.OpenXml.Spreadsheet;
 using System.Diagnostics;
 using DocumentFormat.OpenXml.Drawing.ChartDrawing;
 using FoundryRulesAndUnits.Extensions;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace VisioShapeExtractor;
 public class Program
@@ -141,7 +143,7 @@ public class Program
             if (!string.IsNullOrEmpty(shape2D.ParentId) && shape2DList.ContainsKey(shape2D.ParentId))
             {
                 var parentShape = shape2DList[shape2D.ParentId];
-                parentShape.SubShapes.Add(shape2D);
+                parentShape.AddSubShape(shape2D);
             }
         }
         // now do that for 1D shapes    
@@ -150,7 +152,7 @@ public class Program
             if (!string.IsNullOrEmpty(shape1D.ParentId) && shape2DList.ContainsKey(shape1D.ParentId))
             {
                 var parentShape = shape2DList[shape1D.ParentId];
-                parentShape.SubShapes.Add(shape1D);
+                parentShape.AddSubShape(shape1D);
             }
         }
 
@@ -163,15 +165,27 @@ public class Program
             }
         }
 
+  
+
         // Export the lists to JSON files
         var outputPath2D = vsdxPath.Replace(".vsdx", "_2D.json");
-        var data2D = CodingExtensions.DehydrateList<Shape2D>(shape2DList.Values.ToList(),false);
+        var data2D = DehydrateShapes<Shape2D>(shape2DList.Values.ToList());
         File.WriteAllText(outputPath2D, data2D);
 
         var outputPath1D = vsdxPath.Replace(".vsdx", "_1D.json");
-        var data1D = CodingExtensions.DehydrateList<Shape1D>(shape1DList.Values.ToList(),false);
+        var data1D = DehydrateShapes<Shape1D>(shape1DList.Values.ToList());
         File.WriteAllText(outputPath1D, data1D);
 
+    }
+
+    public static string DehydrateShapes<T>(List<T> target) where T : class
+    {
+        var options = new JsonSerializerOptions
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
+            WriteIndented = true
+        };
+        return JsonSerializer.Serialize(target, options);
     }
 
     static void ExportToCsv(List<ShapeInfo> shapeInfos, string outputPath)
