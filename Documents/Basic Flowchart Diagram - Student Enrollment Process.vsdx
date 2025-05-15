@@ -1,0 +1,33 @@
+ShapeId,ShapeName,ParentShapeId,ShapeText,ShapeType,MasterName,Is1DShape,BeginConnectedTo,EndConnectedTo,ConnectionPoints,PageName,PositionX,PositionY,Width,Height,ShapeData
+7,Process,,"Submit the registration form
+",Shape,Process,False,,,,page1,0,0,0,0,
+8,Decision,,"Form Complete?
+",Shape,Decision,False,,,,page1,0,0,0,0,
+3,Dynamic connector,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+4,,,"No
+",Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+6,,,"Yes
+",Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+9,,,"Verify Details of Submission
+",Shape,Process,False,,,,page1,0,0,0,0,
+12,,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+11,,,"Accept Submission?
+",Shape,Decision,False,,,,page1,0,0,0,0,
+14,,,"Yes
+",Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+13,,,"Write Acceptance Letter
+",Shape,Process,False,,,,page1,0,0,0,0,
+16,,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+17,Document,,"Acceptance Letter
+",Shape,Document,False,,,,page1,0,0,0,0,
+19,,,"No
+",Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+18,,,"Notify Student on the Rejection
+",Shape,Process,False,,,,page1,0,0,0,0,
+62,Start/End,,"Start
+",Shape,Start/End,False,,,,page1,0,0,0,0,
+63,,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+64,Start/End.64,,"End
+",Shape,Start/End,False,,,,page1,0,0,0,0,
+65,,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,
+66,,,,Shape,Dynamic connector,False,,,,page1,0,0,0,0,

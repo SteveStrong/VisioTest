@@ -1,0 +1,410 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Xml.Linq;
+using DocumentFormat.OpenXml.Packaging;
+using System.IO.Compression;
+using System.Xml;
+
+namespace VisioShapeExtractor
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            if (args.Length < 1)
+            {
+                Console.WriteLine("Usage: VisioShapeExtractor <path_to_visio_file> [output_directory]");
+                return;
+            }
+
+            string visioFilePath = args[0];
+            string outputDirectory = args.Length > 1 ? args[1] : "output";
+
+            Console.WriteLine($"Processing Visio file: {visioFilePath}");
+
+            // Create output directory if it doesn't exist
+            if (!Directory.Exists(outputDirectory))
+            {
+                Directory.CreateDirectory(outputDirectory);
+            }
+
+            try
+            {
+                // Process the Visio file
+                VisioProcessor processor = new VisioProcessor();
+                var (shapes, connections) = processor.ProcessVisioFile(visioFilePath);
+
+                if (shapes.Count > 0)
+                {
+                    // Output summary
+                    string summary = GenerateSummary(shapes, connections);
+                    Console.WriteLine("\nSummary:");
+                    Console.WriteLine(summary);
+
+                    // Export to CSV
+                    ExportToCsv(shapes, connections, outputDirectory);
+                    Console.WriteLine($"\nData exported to CSV files in directory: {outputDirectory}");
+                }
+                else
+                {
+                    Console.WriteLine("No shapes found in the Visio file.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error: {ex.Message}");
+                Console.WriteLine(ex.StackTrace);
+            }
+        }
+
+        static string GenerateSummary(Dictionary<string, Shape> shapes, List<Connection> connections)
+        {
+            StringBuilder summary = new StringBuilder();
+
+            // Count of shapes by type
+            int shapeCount1D = shapes.Values.Count(s => s.IsOneDimensional);
+            int shapeCount2D = shapes.Values.Count(s => !s.IsOneDimensional);
+
+            summary.AppendLine($"Total shapes found: {shapes.Count}");
+            summary.AppendLine($"1D shapes: {shapeCount1D}");
+            summary.AppendLine($"2D shapes: {shapeCount2D}");
+            summary.AppendLine();
+
+            // Connection summary
+            if (connections.Count > 0)
+            {
+                summary.AppendLine($"Total connections between 1D and 2D shapes: {connections.Count}");
+                summary.AppendLine("\nConnections Details:");
+                
+                int counter = 1;
+                foreach (var conn in connections)
+                {
+                    Shape shape1D = shapes[conn.Shape1DId];
+                    Shape shape2D = shapes[conn.Shape2DId];
+                    
+                    summary.AppendLine($"{counter++}. 1D shape '{shape1D.Name}' (ID: {shape1D.Id}, text: '{shape1D.Text}') " +
+                                       $"connects at its {conn.ConnectionType} to " +
+                                       $"2D shape '{shape2D.Name}' (ID: {shape2D.Id}, text: '{shape2D.Text}')");
+                }
+            }
+            else
+            {
+                summary.AppendLine("No connections found between 1D and 2D shapes.");
+            }
+
+            return summary.ToString();
+        }
+
+        static void ExportToCsv(Dictionary<string, Shape> shapes, List<Connection> connections, string outputDirectory)
+        {
+            // Export shapes to CSV
+            using (StreamWriter writer = new StreamWriter(Path.Combine(outputDirectory, "shapes.csv")))
+            {
+                writer.WriteLine("ID,Name,Text,Type,Width,Height");
+                
+                foreach (var shape in shapes.Values)
+                {
+                    string shapeType = shape.IsOneDimensional ? "1D" : "2D";
+                    writer.WriteLine($"\"{shape.Id}\",\"{EscapeCsvField(shape.Name)}\",\"{EscapeCsvField(shape.Text)}\",\"{shapeType}\",{shape.Width},{shape.Height}");
+                }
+            }
+
+            // Export connections to CSV
+            if (connections.Count > 0)
+            {
+                using (StreamWriter writer = new StreamWriter(Path.Combine(outputDirectory, "connections.csv")))
+                {
+                    writer.WriteLine("1D_id,1D_name,1D_text,connection_type,2D_id,2D_name,2D_text");
+                    
+                    foreach (var conn in connections)
+                    {
+                        Shape shape1D = shapes[conn.Shape1DId];
+                        Shape shape2D = shapes[conn.Shape2DId];
+                        
+                        writer.WriteLine($"\"{conn.Shape1DId}\",\"{EscapeCsvField(shape1D.Name)}\",\"{EscapeCsvField(shape1D.Text)}\"," +
+                                         $"\"{conn.ConnectionType}\",\"{conn.Shape2DId}\",\"{EscapeCsvField(shape2D.Name)}\",\"{EscapeCsvField(shape2D.Text)}\"");
+                    }
+                }
+            }
+        }
+
+        static string EscapeCsvField(string field)
+        {
+            if (string.IsNullOrEmpty(field))
+                return string.Empty;
+                
+            return field.Replace("\"", "\"\"");
+        }
+    }
+
+    public class Shape
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+        public string Text { get; set; }
+        public bool IsOneDimensional { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public List<string> ConnectsTo { get; set; } = new List<string>();
+        public Dictionary<string, string> ConnectionPoints { get; set; } = new Dictionary<string, string>();
+    }
+
+    public class Connection
+    {
+        public string Shape1DId { get; set; }
+        public string Shape2DId { get; set; }
+        public string ConnectionType { get; set; } // "beginning" or "ending"
+    }
+
+    public class VisioProcessor
+    {
+        private const string VsdxExtension = ".vsdx";
+        private const string VsdExtension = ".vsd";
+
+        public (Dictionary<string, Shape> shapes, List<Connection> connections) ProcessVisioFile(string filePath)
+        {
+            string extension = Path.GetExtension(filePath).ToLower();
+            
+            if (extension == VsdxExtension)
+            {
+                return ProcessVsdxFile(filePath);
+            }
+            else if (extension == VsdExtension)
+            {
+                return ProcessBinaryVsdFile(filePath);
+            }
+            else
+            {
+                throw new NotSupportedException($"File format {extension} is not supported. Please use .vsdx or .vsd files.");
+            }
+        }
+
+        private (Dictionary<string, Shape> shapes, List<Connection> connections) ProcessVsdxFile(string filePath)
+        {
+            Dictionary<string, Shape> shapes = new Dictionary<string, Shape>();
+            
+            using (Package package = Package.Open(filePath, FileMode.Open, FileAccess.Read))
+            {
+                // Get the main document part
+                var documentPart = package.GetParts().FirstOrDefault(p => p.Uri.ToString().EndsWith("document.xml"));
+                
+                if (documentPart != null)
+                {
+                    using (Stream stream = documentPart.GetStream())
+                    using (XmlReader reader = XmlReader.Create(stream))
+                    {
+                        XDocument doc = XDocument.Load(reader);
+                        
+                        // Extract shapes from the document
+                        shapes = ExtractShapesFromXml(doc);
+                    }
+                }
+                
+                // Process connections between shapes
+                var connections = AnalyzeConnections(shapes);
+                
+                return (shapes, connections);
+            }
+        }
+
+        private (Dictionary<string, Shape> shapes, List<Connection> connections) ProcessBinaryVsdFile(string filePath)
+        {
+            // This is a simplified implementation that works with binary .vsd files
+            // For production use, you may need a more robust solution
+            
+            // Create a temporary file to store extracted XML
+            string tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+            Directory.CreateDirectory(tempDir);
+            
+            try
+            {
+                // Binary VSD files require specialized libraries or conversion
+                // For this example, we'll simulate extraction with a mock approach
+                Console.WriteLine("Note: Binary .vsd files require conversion to .vsdx for full support.");
+                Console.WriteLine("Processing binary .vsd file in limited mode...");
+                
+                // Create a mock shapes dictionary for demonstration
+                var shapes = new Dictionary<string, Shape>();
+                
+                // In a real implementation, you would:
+                // 1. Convert the binary .vsd to .vsdx format
+                // 2. Process the .vsdx file as shown in ProcessVsdxFile method
+                
+                // For binary .vsd files, recommend:
+                Console.WriteLine("For best results with binary .vsd files:");
+                Console.WriteLine("1. Open the file in Visio (if available)");
+                Console.WriteLine("2. Save it as .vsdx format");
+                Console.WriteLine("3. Process the .vsdx file with this tool");
+                
+                // Process connections between shapes
+                var connections = AnalyzeConnections(shapes);
+                
+                return (shapes, connections);
+            }
+            finally
+            {
+                // Clean up temporary directory
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        private Dictionary<string, Shape> ExtractShapesFromXml(XDocument doc)
+        {
+            Dictionary<string, Shape> shapes = new Dictionary<string, Shape>();
+            
+            // Define XML namespaces (may need adjustment based on the actual Visio VSDX structure)
+            XNamespace vns = "http://schemas.microsoft.com/office/visio/2012/main";
+            
+            // Extract shapes from the XML
+            var shapeElements = doc.Descendants(vns + "Shape");
+            
+            foreach (var shapeElement in shapeElements)
+            {
+                string id = shapeElement.Attribute("ID")?.Value;
+                if (string.IsNullOrEmpty(id))
+                    continue;
+                
+                Shape shape = new Shape
+                {
+                    Id = id,
+                    Name = shapeElement.Attribute("Name")?.Value ?? $"Shape_{id}",
+                    Text = ExtractTextFromShape(shapeElement),
+                    IsOneDimensional = IsOneDimensionalShape(shapeElement),
+                    Width = ParseDoubleAttribute(shapeElement.Attribute("Width")),
+                    Height = ParseDoubleAttribute(shapeElement.Attribute("Height"))
+                };
+                
+                // Extract connection information
+                ExtractConnectionInfo(shapeElement, shape);
+                
+                shapes[id] = shape;
+            }
+            
+            return shapes;
+        }
+
+        private string ExtractTextFromShape(XElement shapeElement)
+        {
+            XNamespace vns = "http://schemas.microsoft.com/office/visio/2012/main";
+            
+            var textElement = shapeElement.Element(vns + "Text");
+            if (textElement != null)
+            {
+                return textElement.Value;
+            }
+            
+            return string.Empty;
+        }
+
+        private bool IsOneDimensionalShape(XElement shapeElement)
+        {
+            XNamespace vns = "http://schemas.microsoft.com/office/visio/2012/main";
+            
+            // In VSDX, 1D shapes typically have a "Type" attribute with value "1"
+            // This is a simplified check; actual implementation may need more sophisticated logic
+            var typeAttribute = shapeElement.Attribute("Type");
+            if (typeAttribute != null && typeAttribute.Value == "1")
+            {
+                return true;
+            }
+            
+            // Alternative check: Look for "1D" in cell values
+            var cells = shapeElement.Descendants(vns + "Cell");
+            foreach (var cell in cells)
+            {
+                var nameAttr = cell.Attribute("N");
+                if (nameAttr != null && nameAttr.Value == "1Dimension")
+                {
+                    var valueAttr = cell.Attribute("V");
+                    return valueAttr != null && valueAttr.Value == "1";
+                }
+            }
+            
+            return false;
+        }
+
+        private void ExtractConnectionInfo(XElement shapeElement, Shape shape)
+        {
+            XNamespace vns = "http://schemas.microsoft.com/office/visio/2012/main";
+            
+            // Extract connection information from shape
+            var connects = shapeElement.Elements(vns + "Connect");
+            foreach (var connect in connects)
+            {
+                string fromSheet = connect.Attribute("FromSheet")?.Value;
+                string toSheet = connect.Attribute("ToSheet")?.Value;
+                string fromPart = connect.Attribute("FromPart")?.Value;
+                string toPart = connect.Attribute("ToPart")?.Value;
+                
+                if (!string.IsNullOrEmpty(toSheet))
+                {
+                    shape.ConnectsTo.Add(toSheet);
+                    
+                    // Determine if it's beginning or ending connection
+                    string connectionType = "middle"; // Default
+                    if (!string.IsNullOrEmpty(fromPart))
+                    {
+                        if (fromPart == "0") connectionType = "beginning";
+                        else if (fromPart == "1") connectionType = "ending";
+                    }
+                    
+                    shape.ConnectionPoints[toSheet] = connectionType;
+                }
+            }
+        }
+
+        private double ParseDoubleAttribute(XAttribute attribute)
+        {
+            double result = 0;
+            if (attribute != null && double.TryParse(attribute.Value, out result))
+            {
+                return result;
+            }
+            return 0;
+        }
+
+        private List<Connection> AnalyzeConnections(Dictionary<string, Shape> shapes)
+        {
+            List<Connection> connections = new List<Connection>();
+            
+            // Find all 1D shapes
+            var shapes1D = shapes.Values.Where(s => s.IsOneDimensional).ToList();
+            
+            foreach (var shape1D in shapes1D)
+            {
+                // Check all shapes this 1D shape connects to
+                foreach (var connectedShapeId in shape1D.ConnectsTo)
+                {
+                    if (shapes.TryGetValue(connectedShapeId, out Shape connectedShape))
+                    {
+                        // Only consider connections to 2D shapes
+                        if (!connectedShape.IsOneDimensional)
+                        {
+                            string connectionType = "unknown";
+                            if (shape1D.ConnectionPoints.TryGetValue(connectedShapeId, out string type))
+                            {
+                                connectionType = type;
+                            }
+                            
+                            connections.Add(new Connection
+                            {
+                                Shape1DId = shape1D.Id,
+                                Shape2DId = connectedShapeId,
+                                ConnectionType = connectionType
+                            });
+                        }
+                    }
+                }
+            }
+            
+            return connections;
+        }
+    }
+}
