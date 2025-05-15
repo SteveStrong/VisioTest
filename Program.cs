@@ -135,6 +135,34 @@ public class Program
             }
         }
 
+        // use the information in the dictionary to move child shapes to the parent shape
+        foreach (var shape2D in shape2DList.Values)
+        {
+            if (!string.IsNullOrEmpty(shape2D.ParentId) && shape2DList.ContainsKey(shape2D.ParentId))
+            {
+                var parentShape = shape2DList[shape2D.ParentId];
+                parentShape.SubShapes.Add(shape2D);
+            }
+        }
+        // now do that for 1D shapes    
+        foreach (var shape1D in shape1DList.Values)
+        {
+            if (!string.IsNullOrEmpty(shape1D.ParentId) && shape2DList.ContainsKey(shape1D.ParentId))
+            {
+                var parentShape = shape2DList[shape1D.ParentId];
+                parentShape.SubShapes.Add(shape1D);
+            }
+        }
+
+        //now remove shapes from the dictionary if they  have a parent
+        foreach (var shape2D in shape2DList.Values.ToList())
+        {
+            if (!string.IsNullOrEmpty(shape2D.ParentId) && shape2DList.ContainsKey(shape2D.ParentId))
+            {
+                shape2DList.Remove(shape2D.Id);
+            }
+        }
+
         // Export the lists to JSON files
         var outputPath2D = vsdxPath.Replace(".vsdx", "_2D.json");
         var data2D = CodingExtensions.DehydrateList<Shape2D>(shape2DList.Values.ToList(),false);
@@ -146,24 +174,24 @@ public class Program
 
     }
 
-        static void ExportToCsv(List<ShapeInfo> shapeInfos, string outputPath)
+    static void ExportToCsv(List<ShapeInfo> shapeInfos, string outputPath)
+    {
+        var outputCsvPath = outputPath.Replace(".vsdx", "_export.csv");
+
+        // Ensure directory exists
+        var directory = Path.GetDirectoryName(outputCsvPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
         {
-            var outputCsvPath = outputPath.Replace(".vsdx", "_export.csv");
-
-            // Ensure directory exists
-            var directory = Path.GetDirectoryName(outputPath);
-            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            // Write to CSV
-            using (var writer = new StreamWriter(outputPath))
-            using (var csv = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture)))
-            {
-                csv.WriteRecords(shapeInfos);
-            }
+            Directory.CreateDirectory(directory);
         }
+
+        // Write to CSV - using outputCsvPath instead of outputPath
+        using (var writer = new StreamWriter(outputCsvPath))
+        using (var csv = new CsvWriter(writer, new CsvConfiguration(CultureInfo.InvariantCulture)))
+        {
+            csv.WriteRecords(shapeInfos);
+        }
+    }
 
     static List<ShapeInfo> ExtractShapeInformation(string vsdxPath)
     {
@@ -265,14 +293,9 @@ public class Program
                 shapeInfo.PositionY = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "PinY"));
                 shapeInfo.Width = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Width"));
                 shapeInfo.Height = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Height"));
-            }
-
-            // Check if it's a 1D shape (connector)
+            }            // Get shape type
             var oneDAttr = shape.Attribute("Type");
             shapeInfo.ShapeType = oneDAttr?.Value ?? "";
-            shapeInfo.Is1DShape = shapeInfo.ShapeType == "Shape" &&
-                                 (shape.Descendants().Any(e => e.Name.LocalName == "SplineStart") ||
-                                  shape.Elements().Any(e => e.Name.LocalName == "Line"));
 
             // Get master shape information
             var masterIdAttr = shape.Attribute("Master");
@@ -280,6 +303,12 @@ public class Program
             {
                 shapeInfo.MasterName = masterName;
             }
+            
+            // Check if it's a 1D shape (connector) - check after we get the master name
+            shapeInfo.Is1DShape = (shapeInfo.ShapeType == "Shape" &&
+                                 (shape.Descendants().Any(e => e.Name.LocalName == "SplineStart") ||
+                                  shape.Elements().Any(e => e.Name.LocalName == "Line"))) ||
+                                 shapeInfo.MasterName == "Dynamic connector";
 
             // Get shape data (custom properties)
             var props = shape.Descendants().Where(e => e.Name.LocalName == "Prop");
@@ -375,6 +404,8 @@ public class Program
 
                     // Create connection information based on FromCell and ToCell values
                     string connectionPoints = $"FromPart={fromPart}, ToPart={toPart}";
+
+                    $"{fromSheet} -> {toSheet}".WriteInfo();
 
                     if (!string.IsNullOrEmpty(fromSheet) && !connections.ContainsKey(fromSheet))
                     {
