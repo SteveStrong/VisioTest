@@ -36,7 +36,22 @@ public class ShapeInfo
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double Height { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double BeginX { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double BeginY { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double EndX { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double EndY { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string ShapeData { get; set; } = string.Empty;
+}
+
+public class VisioShapes
+{
+    public string filename { get; set; } =  string.Empty;
+    public List<Shape2D> Shape2D { get; set; } = new();
+    public List<Shape1D> Shape1D { get; set; } = new();
 }
 
 [JsonDerivedType(typeof(Shape2D), typeDiscriminator: "2D")]
@@ -88,4 +103,13 @@ public class Shape1D : ShapeSheet
     public string FromCell { get; set; } = string.Empty;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string ToCell { get; set; } = string.Empty;
+    
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double BeginX { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double BeginY { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double EndX { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public double EndY { get; set; }
 }

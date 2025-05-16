@@ -104,7 +104,11 @@ public class Program
                     FromShapeId = shapeInfo.BeginConnectedTo,
                     ToShapeId = shapeInfo.EndConnectedTo,
                     FromCell = shapeInfo.ConnectionPoints,
-                    ToCell = shapeInfo.ConnectionPoints
+                    ToCell = shapeInfo.ConnectionPoints,
+                    BeginX = shapeInfo.BeginX,
+                    BeginY = shapeInfo.BeginY,
+                    EndX = shapeInfo.EndX,
+                    EndY = shapeInfo.EndY
                 };
 
                 // Add to the dictionary
@@ -165,20 +169,21 @@ public class Program
             }
         }
 
-  
+        VisioShapes visioShapes = new VisioShapes
+        {
+            filename = vsdxPath,
+            Shape2D = shape2DList.Values.ToList(),
+            Shape1D = shape1DList.Values.ToList()
+        };
 
         // Export the lists to JSON files
-        var outputPath2D = vsdxPath.Replace(".vsdx", "_2D.json");
-        var data2D = DehydrateShapes<Shape2D>(shape2DList.Values.ToList());
-        File.WriteAllText(outputPath2D, data2D);
-
-        var outputPath1D = vsdxPath.Replace(".vsdx", "_1D.json");
-        var data1D = DehydrateShapes<Shape1D>(shape1DList.Values.ToList());
-        File.WriteAllText(outputPath1D, data1D);
+        var outputPath = vsdxPath.Replace(".vsdx", ".json");
+        var data = DehydrateShapes<VisioShapes>(visioShapes);
+        File.WriteAllText(outputPath, data);
 
     }
 
-    public static string DehydrateShapes<T>(List<T> target) where T : class
+    public static string DehydrateShapes<T>(T target) where T : class
     {
         var options = new JsonSerializerOptions
         {
@@ -218,10 +223,32 @@ public class Program
             {
                 throw new InvalidDataException($"The file '{vsdxPath}' is not a valid ZIP archive or is corrupt.");
             }
+            
+            // Create XML output directory based on the VSDX filename
+            string xmlOutputDir = Path.Combine(Path.GetDirectoryName(vsdxPath) ?? "", 
+                                             Path.GetFileNameWithoutExtension(vsdxPath) + "_XML");
+            
+            // Ensure the directory exists
+            if (!Directory.Exists(xmlOutputDir))
+            {
+                Directory.CreateDirectory(xmlOutputDir);
+            }
 
             // Use ZipFile to extract the VSDX (which is a ZIP file) and process the XML directly
             using (var archive = ZipFile.OpenRead(vsdxPath))
             {
+                // Save all XML files from the archive
+                foreach (var entry in archive.Entries.Where(e => e.FullName.EndsWith(".xml")))
+                {
+                    string outputPath = Path.Combine(xmlOutputDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                    
+                    // Ensure directory for this file exists
+                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
+                    
+                    // Extract and save the XML file
+                    entry.ExtractToFile(outputPath, overwrite: true);
+                }
+                
                 // First, get all master information (stencils)
                 Dictionary<string, string> masters = GetMasterInformation(archive);
 
@@ -287,42 +314,104 @@ public class Program
             string shapeId = shape.Attribute("ID")?.Value ?? "";
             string shapeName = shape.Attribute("Name")?.Value ?? "";
 
+                        // Get shape type
+            var oneDAttr = shape.Attribute("Type");
+            var shapeType = oneDAttr?.Value ?? "";
+            //$"Shape type for {shapeId} is [{shapeType}]".WriteSuccess();
+
+            // Check if it's a 1D shape (connector)
+
+            
+            // Look for Cell N="Type" V="1" - the most reliable indicator of 1D behavior
+            var typeCell = shape.Descendants()
+                .Where(e => e.Name.LocalName == "Cell" && 
+                        e.Attribute("N")?.Value == "Type" && 
+                        e.Attribute("V")?.Value == "1")
+                .FirstOrDefault();
+
+            bool isExplicit1D = typeCell != null;
+
             ShapeInfo shapeInfo = new ShapeInfo
             {
                 ShapeId = shapeId,
                 ShapeName = shapeName,
                 PageName = pageName,
-                ParentShapeId = parentShapeId ?? ""
+                ParentShapeId = parentShapeId ?? "",
+                ShapeType = shapeType,
+                Is1DShape = isExplicit1D,
             };
+
+            $"{shapeName} ({shapeId}) is Is1DShape {isExplicit1D} shape".WriteInfo();
 
             // Get shape text
             var textElement = shape.Descendants().FirstOrDefault(e => e.Name.LocalName == "Text");
             shapeInfo.ShapeText = textElement?.Value ?? "";
 
             // Get position and size information
-            var xForm = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "XForm");
+            var xForm = shape.Elements().FirstOrDefault(e => e.Name.LocalName.Matches("XForm"));
             if (xForm != null)
             {
                 shapeInfo.PositionX = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "PinX"));
                 shapeInfo.PositionY = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "PinY"));
                 shapeInfo.Width = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Width"));
                 shapeInfo.Height = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Height"));
-            }            // Get shape type
-            var oneDAttr = shape.Attribute("Type");
-            shapeInfo.ShapeType = oneDAttr?.Value ?? "";
-
+            }
+            
+            // Look for XForm1D section for 1D shapes (connectors)
+            var xForm1D = shape.Elements().FirstOrDefault(e => e.Name.LocalName.Matches("XForm1D"));
+            if (xForm1D != null)
+            {
+                shapeInfo.BeginX = GetDoubleValue(xForm1D.Elements().FirstOrDefault(e => e.Name.LocalName == "BeginX"));
+                shapeInfo.BeginY = GetDoubleValue(xForm1D.Elements().FirstOrDefault(e => e.Name.LocalName == "BeginY"));
+                shapeInfo.EndX = GetDoubleValue(xForm1D.Elements().FirstOrDefault(e => e.Name.LocalName == "EndX"));
+                shapeInfo.EndY = GetDoubleValue(xForm1D.Elements().FirstOrDefault(e => e.Name.LocalName == "EndY"));
+                $"XForm1D found for shape {shapeId} with BeginX={shapeInfo.BeginX}, BeginY={shapeInfo.BeginY}, EndX={shapeInfo.EndX}, EndY={shapeInfo.EndY}".WriteNote();
+            } 
+            
+            // Also look for Cell elements with N="BeginX", etc. attributes (alternative format)
+            var cells = shape.Descendants().Where(e => e.Name.LocalName == "Cell");
+            foreach (var cell in cells)
+            {
+                string cellName = cell.Attribute("N")?.Value ?? "";
+                string cellValue = cell.Attribute("V")?.Value ?? "";
+                
+                double value = 0;
+                if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out value))
+                {
+                    switch (cellName)
+                    {
+                        case "BeginX":
+                            shapeInfo.BeginX = value;
+                            break;
+                        case "BeginY":
+                            shapeInfo.BeginY = value;
+                            break;
+                        case "EndX":
+                            shapeInfo.EndX = value;
+                            break;
+                        case "EndY":
+                            shapeInfo.EndY = value;
+                            break;
+                    }
+                }
+            }
+            
             // Get master shape information
             var masterIdAttr = shape.Attribute("Master");
             if (masterIdAttr != null && masters.TryGetValue(masterIdAttr.Value, out var masterName))
             {
                 shapeInfo.MasterName = masterName;
             }
+
+            if ( shapeInfo.MasterName.Contains("connector", StringComparison.OrdinalIgnoreCase))
+            {
+                shapeInfo.Is1DShape = true;
+            }
+            else
+            {
+                shapeInfo.Is1DShape = false;
+            }
             
-            // Check if it's a 1D shape (connector) - check after we get the master name
-            shapeInfo.Is1DShape = (shapeInfo.ShapeType == "Shape" &&
-                                 (shape.Descendants().Any(e => e.Name.LocalName == "SplineStart") ||
-                                  shape.Elements().Any(e => e.Name.LocalName == "Line"))) ||
-                                 shapeInfo.MasterName == "Dynamic connector";
 
             // Get shape data (custom properties)
             var props = shape.Descendants().Where(e => e.Name.LocalName == "Prop");
@@ -419,7 +508,7 @@ public class Program
                     // Create connection information based on FromCell and ToCell values
                     string connectionPoints = $"FromPart={fromPart}, ToPart={toPart}";
 
-                    $"{fromSheet} -> {toSheet}".WriteInfo();
+                    //$"{fromSheet} -> {toSheet}".WriteInfo();
 
                     if (!string.IsNullOrEmpty(fromSheet) && !connections.ContainsKey(fromSheet))
                     {
