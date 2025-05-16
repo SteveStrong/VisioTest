@@ -51,8 +51,6 @@ public class Program
                     
                     $"Processing Visio file: {vsdxPath}".WriteInfo();
                     
-    
-                    
                     var shapeInfos = ExtractShapeInformation(vsdxPath);
                     
                     if (shapeInfos.Count > 0)
@@ -341,7 +339,7 @@ public class Program
                 Is1DShape = isExplicit1D,
             };
 
-            $"{shapeName} ({shapeId}) is Is1DShape {isExplicit1D} shape".WriteInfo();
+            //$"{shapeName} ({shapeId}) is Is1DShape {isExplicit1D} shape".WriteInfo();
 
             // Get shape text
             var textElement = shape.Descendants().FirstOrDefault(e => e.Name.LocalName == "Text");
