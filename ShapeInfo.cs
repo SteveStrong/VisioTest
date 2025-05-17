@@ -5,27 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace VisioShapeExtractor;
 
-public class EmptyCollectionConverter<T> : JsonConverter<List<T>>
-{
-    public override List<T> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
-    {
-        // Default deserialization behavior
-        return JsonSerializer.Deserialize<List<T>>(ref reader, options) ?? new List<T>();
-    }
-
-    public override void Write(Utf8JsonWriter writer, List<T> value, JsonSerializerOptions options)
-    {
-        // Don't write anything if the list is empty
-        if (value == null || value.Count == 0)
-        {
-            writer.WriteNullValue();
-        }
-        else
-        {
-            JsonSerializer.Serialize(writer, value, options);
-        }
-    }
-}
+// Removed EmptyCollectionConverter - replaced with ListConverter
 
 public class ShapeInfo
 {
@@ -49,9 +29,7 @@ public class ShapeInfo
     public double EndX { get; set; }
     public double EndY { get; set; }
     public string ShapeData { get; set; } = string.Empty;
-    [JsonConverter(typeof(EmptyCollectionConverter<ConnectionPoint>))]
     public List<ConnectionPoint> ConnectionPointsArray { get; set; } = new List<ConnectionPoint>();
-    [JsonConverter(typeof(EmptyCollectionConverter<Layer>))]
     public List<Layer> Layers { get; set; } = new List<Layer>();
     public string LayerMembership { get; set; } = string.Empty;
 }
@@ -71,20 +49,15 @@ public class ShapeSheet
     public string Text { get; set; } = string.Empty;
     public string Master { get; set; } = string.Empty;
     public string Type { get; set; } = string.Empty;
-    public string ParentId { get; set; } = string.Empty;
-    public List<ShapeSheet> SubShapes { get; set; } = null!;
+    public string ParentId { get; set; } = string.Empty;    public List<ShapeSheet> SubShapes { get; set; } = new List<ShapeSheet>();
     
-    [JsonConverter(typeof(EmptyCollectionConverter<ConnectionPoint>))]
     public List<ConnectionPoint> ConnectionPoints { get; set; } = new List<ConnectionPoint>();
     
-    [JsonConverter(typeof(EmptyCollectionConverter<Layer>))]
     public List<Layer> Layers { get; set; } = new List<Layer>();
     
-    public string LayerMembership { get; set; } = string.Empty;
-
-    public void AddSubShape(ShapeSheet shape)
+    public string LayerMembership { get; set; } = string.Empty;    public void AddSubShape(ShapeSheet shape)
     {
-        SubShapes ??= new List<ShapeSheet>();
+        // SubShapes is already initialized, no need for null check
         if (SubShapes.Contains(shape))
             return;
         SubShapes.Add(shape);
