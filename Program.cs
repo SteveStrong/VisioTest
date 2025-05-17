@@ -106,7 +106,8 @@ public class Program
                     BeginX = shapeInfo.BeginX,
                     BeginY = shapeInfo.BeginY,
                     EndX = shapeInfo.EndX,
-                    EndY = shapeInfo.EndY
+                    EndY = shapeInfo.EndY,
+                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList()
                 };
 
                 // Add to the dictionary
@@ -128,7 +129,8 @@ public class Program
                     PinX = shapeInfo.PositionX,
                     PinY = shapeInfo.PositionY,
                     Width = shapeInfo.Width,
-                    Height = shapeInfo.Height
+                    Height = shapeInfo.Height,
+                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList()
                 };
 
                 // Add to the dictionary
@@ -439,6 +441,88 @@ public class Program
                     shapeInfo.BeginConnectedTo = connectionInfo.Item1;
                     shapeInfo.EndConnectedTo = connectionInfo.Item2;
                     shapeInfo.ConnectionPoints = connectionInfo.Item3;
+                }
+            }
+
+            // Extract connection points
+            // In Visio, connection points are stored in the Connections section
+            var connectionsSection = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "Connections");
+            if (connectionsSection != null)
+            {
+                var rows = connectionsSection.Elements().Where(e => e.Name.LocalName == "Row");
+                foreach (var row in rows)
+                {
+                    var connectionPoint = new ConnectionPoint();
+                    connectionPoint.Id = row.Attribute("IX")?.Value ?? "";
+                    connectionPoint.Name = row.Attribute("Name")?.Value ?? "";
+                    
+                    // Extract X, Y positions from cells
+                    var cellElements = row.Elements().Where(e => e.Name.LocalName == "Cell");
+                    foreach (var cell in cellElements)
+                    {
+                        string cellName = cell.Attribute("N")?.Value ?? "";
+                        string cellValue = cell.Attribute("V")?.Value ?? "";
+                        
+                        switch (cellName)
+                        {
+                            case "X":
+                                if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double x))
+                                    connectionPoint.X = x;
+                                break;
+                            case "Y":
+                                if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double y))
+                                    connectionPoint.Y = y;
+                                break;
+                            case "DirX":
+                                connectionPoint.DirX = cellValue;
+                                break;
+                            case "DirY":
+                                connectionPoint.DirY = cellValue;
+                                break;
+                            case "Type":
+                                connectionPoint.Type = cellValue;
+                                break;
+                        }
+                    }
+                    
+                    // Only add non-empty connection points
+                    if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+                    {
+                        shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                        $"Found connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
+                    }
+                }
+            }
+            
+            // Look for alternative connection point format - Connection elements
+            var connectionElements = shape.Descendants().Where(e => e.Name.LocalName == "Connection");
+            foreach (var conn in connectionElements)
+            {
+                var connectionPoint = new ConnectionPoint();
+                connectionPoint.Id = conn.Attribute("ID")?.Value ?? "";
+                connectionPoint.Name = conn.Attribute("NameU")?.Value ?? "";
+                
+                // Extract X, Y from specific child elements if they exist
+                var xElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "X");
+                var yElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Y");
+                
+                if (xElem != null)
+                {
+                    if (double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
+                        connectionPoint.X = xVal;
+                }
+                
+                if (yElem != null)
+                {
+                    if (double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
+                        connectionPoint.Y = yVal;
+                }
+                
+                // Only add non-empty connection points
+                if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+                {
+                    shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                    $"Found alternative connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
                 }
             }
 
