@@ -78,16 +78,30 @@ public class Program
             Console.WriteLine($"An error occurred: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
         }
-    }
-
-    private static void TransformShapeInformation(List<ShapeInfo> shapeInfos, string vsdxPath)
+    }    private static void TransformShapeInformation(List<ShapeInfo> shapeInfos, string vsdxPath)
     {
         //this function will remap shapeInfos to the into Shape2D and Shape1D items then export as json
         var shape2DList = new Dictionary<string, Shape2D>();
         var shape1DList = new Dictionary<string, Shape1D>();
+        int skippedShapes = 0;
+
+        // First, count total shapes before filtering
+        int totalShapes = shapeInfos.Count;
+        $"Total shapes before filtering: {totalShapes}".WriteInfo();
 
         foreach (var shapeInfo in shapeInfos)
         {
+            // Skip shapes with no connection points or layers
+            bool hasConnectionPoints = shapeInfo.ConnectionPointsArray.Count > 0;
+            bool hasLayers = shapeInfo.Layers.Count > 0;
+            
+            // Skip shapes that don't have any connection points or layers
+            if (!hasConnectionPoints && !hasLayers)
+            {
+                skippedShapes++;
+                continue;
+            }
+
             if (shapeInfo.Is1DShape)
             {
                 // Create a new Shape1D object
@@ -170,9 +184,7 @@ public class Program
             {
                 shape2DList.Remove(shape2D.Id);
             }
-        }
-
-        VisioShapes visioShapes = new VisioShapes
+        }        VisioShapes visioShapes = new VisioShapes
         {
             filename = vsdxPath,
             Shape2D = shape2DList.Values.ToList(),
@@ -184,6 +196,13 @@ public class Program
         var data = DehydrateShapes<VisioShapes>(visioShapes);
         File.WriteAllText(outputPath, data);
 
+        // Output filtering summary
+        $"Shape filtering summary:".WriteSuccess();
+        $"  Total shapes: {totalShapes}".WriteInfo();
+        $"  Shapes with connection points or layers: {shape2DList.Count + shape1DList.Count}".WriteInfo();
+        $"  Shapes filtered out (no connection points or layers): {skippedShapes}".WriteInfo();
+        $"  2D shapes in output: {shape2DList.Count}".WriteInfo();
+        $"  1D shapes in output: {shape1DList.Count}".WriteInfo();
     }
 
     public static string DehydrateShapes<T>(T target) where T : class
@@ -469,11 +488,19 @@ public class Program
                     shapeInfo.EndConnectedTo = connectionInfo.Item2;
                     shapeInfo.ConnectionPoints = connectionInfo.Item3;
                 }
-            }            // Debug: Print the raw structure of the shape to look for connection points and layers
-            $"Examining shape {shapeId} ({shapeName}) for connection points and layers:".WriteInfo(1);
-            $"  Shape has {shape.Elements().Count()} direct child elements".WriteInfo(2);
-            var childElementNames = shape.Elements().Select(e => e.Name.LocalName).Distinct().ToList();
-            $"  Child element types: {string.Join(", ", childElementNames)}".WriteInfo(2);
+            }            // Only log debug info if we have connection or layer sections
+            var hasConnectionOrLayerSections = shape.Elements().Any(e => 
+                e.Name.LocalName == "Connections" || 
+                e.Name.LocalName == "LayerMem" || 
+                e.Name.LocalName == "Layers");
+                
+            if (hasConnectionOrLayerSections)
+            {
+                $"Examining shape {shapeId} ({shapeName}) for connection points and layers:".WriteInfo(1);
+                $"  Shape has {shape.Elements().Count()} direct child elements".WriteInfo(2);
+                var childElementNames = shape.Elements().Select(e => e.Name.LocalName).Distinct().ToList();
+                $"  Child element types: {string.Join(", ", childElementNames)}".WriteInfo(2);
+            }
             
             // Extract connection points
             // In Visio, connection points are stored in the Connections section
