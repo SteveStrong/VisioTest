@@ -20,7 +20,8 @@ using System.Text.Json.Serialization;
 namespace VisioShapeExtractor;
 public class Program
 {
-    // Define a class to store shape information
+    // Shape information is now stored in BaseShape and its derived classes: Shape1D and Shape2D
+    // See BaseShape.cs, Shape1D.cs, Shape2D.cs, and VisioShapes.cs
 
 
     static void Main(string[] args)
@@ -29,11 +30,25 @@ public class Program
         dir = dir.Replace(@"bin\Debug\net9.0", "");
             
         try
-        {
-            // Use a default file in the Documents folder if no arguments provided
-            string documentsFolder = Path.Combine(dir, "Documents");            string[] vsdxFiles = Directory.GetFiles(documentsFolder, "*.vsdx");
-
-
+        {            // Use a default file in the Documents folder if no arguments provided
+            string documentsFolder = Path.Combine(dir, "Documents");
+            string drawingsFolder = Path.Combine(dir, "DocumentDrawings");
+            
+            List<string> vsdxFilesList = new List<string>();
+            
+            // Add files from Documents folder
+            if (Directory.Exists(documentsFolder))
+            {
+                vsdxFilesList.AddRange(Directory.GetFiles(documentsFolder, "*.vsdx"));
+            }
+            
+            // Add files from DocumentDrawings folder
+            // if (Directory.Exists(drawingsFolder))
+            // {
+            //     vsdxFilesList.AddRange(Directory.GetFiles(drawingsFolder, "*.vsdx"));
+            // }
+            
+            string[] vsdxFiles = vsdxFilesList.ToArray();
 
             if (vsdxFiles == null || vsdxFiles.Length == 0)
             {
@@ -124,8 +139,12 @@ public class Program
                     ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList(),
                     Layers = shapeInfo.Layers.ToList(),
                     LayerMembership = shapeInfo.LayerMembership
-                };
-
+                };                // Parse shape data if available
+                if (!string.IsNullOrEmpty(shapeInfo.ShapeData))
+                {
+                    shape1D.ParseShapeData(shapeInfo.ShapeData);
+                }
+                
                 // Add to the dictionary
                 if (!shape1DList.ContainsKey(shape1D.Id))
                 {
@@ -150,6 +169,12 @@ public class Program
                     Layers = shapeInfo.Layers.ToList(),
                     LayerMembership = shapeInfo.LayerMembership
                 };
+                
+                // Parse shape data if available
+                if (!string.IsNullOrEmpty(shapeInfo.ShapeData))
+                {
+                    shape2D.ParseShapeData(shapeInfo.ShapeData);
+                }
 
                 // Add to the dictionary
                 if (!shape2DList.ContainsKey(shape2D.Id))
@@ -185,15 +210,14 @@ public class Program
             {
                 shape2DList.Remove(shape2D.Id);
             }
-        }
-
-        VisioShapes visioShapes = new VisioShapes
+        }        VisioShapes visioShapes = new VisioShapes
         {
             filename = vsdxPath,
             Shape2D = shape2DList.Values.ToList(),
             Shape1D = shape1DList.Values.ToList()
-        };
-
+        };        // Analyze shape relationships
+        AnalyzeShapeRelationships(shape2DList.Values, shape1DList.Values);
+        
         // Export the lists to JSON files
         var outputPath = vsdxPath.Replace(".vsdx", ".json");
         var data = DehydrateShapes<VisioShapes>(visioShapes);
@@ -259,11 +283,15 @@ public class Program
                     
                 //     // Extract and save the XML file
                 //     entry.ExtractToFile(outputPath, overwrite: true);
-                // }
+                // }                  // First, get all master information (stencils)
+                Dictionary<string, MasterShapeInfo> masters = GetMasterInformation(archive);
                 
-                // First, get all master information (stencils)
-                Dictionary<string, string> masters = GetMasterInformation(archive);
-
+                // Export master stencil information to JSON if any were found
+                if (masters.Count > 0)
+                {
+                    MastersExporter.ExportToJson(masters, vsdxPath);
+                }
+                
                 // Then, get connection information
                 var connections = GetConnectionInformation(archive);
 
@@ -347,7 +375,7 @@ public class Program
 
     static void ProcessShapes(IEnumerable<XElement> shapes,
                             string pageName,
-                             Dictionary<string, string> masters,
+                             Dictionary<string, MasterShapeInfo> masters,
                              Dictionary<string, Tuple<string, string, string>> connections,
                              List<ShapeInfo> shapeInfos,
                              string? parentShapeName,
@@ -439,15 +467,34 @@ public class Program
                     }
                 }
             }
-            
-            // Get master shape information
+              // Get master shape information
             var masterIdAttr = shape.Attribute("Master");
-            if (masterIdAttr != null && masters.TryGetValue(masterIdAttr.Value, out var masterName))
+            if (masterIdAttr != null && masters.TryGetValue(masterIdAttr.Value, out var masterInfo))
             {
-                shapeInfo.MasterName = masterName;
+                shapeInfo.MasterName = masterInfo.Name;
+                
+                // Copy connection points and layer information from master if available
+                if (masterInfo.HasConnectionPoints)
+                {
+                    shapeInfo.ConnectionPointsArray.AddRange(masterInfo.ConnectionPoints);
+                }
+                
+                if (masterInfo.HasLayers)
+                {
+                    shapeInfo.Layers.AddRange(masterInfo.Layers);
+                }                  // Copy shape data properties if any
+                if (masterInfo.ShapeData.Count > 0)
+                {
+                    List<string> masterPropList = new List<string>();
+                    foreach (var kvp in masterInfo.ShapeData)
+                    {
+                        masterPropList.Add($"{kvp.Key}={kvp.Value}");
+                    }
+                    shapeInfo.ShapeData = string.Join("; ", masterPropList);
+                }
             }
 
-            if ( shapeInfo.MasterName.Contains("connector", StringComparison.OrdinalIgnoreCase))
+            if (shapeInfo.MasterName.Contains("connector", StringComparison.OrdinalIgnoreCase))
             {
                 shapeInfo.Is1DShape = true;
             }
@@ -729,33 +776,334 @@ public class Program
                 }
             }
         }
-    }
-
-    static Dictionary<string, string> GetMasterInformation(ZipArchive archive)
+    }    /// <summary>
+    /// Extracts detailed information about master stencils from a Visio document
+    /// </summary>
+    /// <param name="archive">The ZipArchive containing the VSDX file contents</param>
+    /// <returns>Dictionary mapping master IDs to MasterShapeInfo objects</returns>
+    static Dictionary<string, MasterShapeInfo> GetMasterInformation(ZipArchive archive)
     {
-        Dictionary<string, string> masters = new Dictionary<string, string>();
-
-        foreach (var masterEntry in archive.Entries.Where(e => e.FullName.StartsWith("visio/masters/") && e.FullName.EndsWith(".xml")))
+        // We'll store both simple name dictionary (for backward compatibility) and detailed info
+        Dictionary<string, MasterShapeInfo> masters = new Dictionary<string, MasterShapeInfo>();
+        Dictionary<string, string> masterNames = new Dictionary<string, string>(); // For backward compatibility        // Debug: Print all entries in the zip file to help diagnose master stencil issues
+        $"Archive contains {archive.Entries.Count} entries.".WriteInfo();
+        var masterRelatedEntries = archive.Entries.Where(e => e.FullName.Contains("master", StringComparison.OrdinalIgnoreCase) || e.FullName.StartsWith("visio/masters/")).ToList();
+        $"Found {masterRelatedEntries.Count} entries related to masters:".WriteInfo();
+        foreach (var entry in masterRelatedEntries.Take(10))
         {
+            $"  {entry.FullName}".WriteInfo();
+        }        // First identify stencil documents to get stencil names - be more flexible in the pattern matching
+        var stencilDocs = archive.Entries.Where(e => 
+            (e.FullName.StartsWith("visio/masters/") && e.FullName.EndsWith(".xml")) || 
+            (e.FullName.Contains("/master") && e.FullName.EndsWith(".xml"))
+        ).ToList();
+        
+        $"Found {stencilDocs.Count} master stencil documents.".WriteInfo();
+        
+        foreach (var masterEntry in stencilDocs)
+        {
+            string stencilName = Path.GetFileNameWithoutExtension(masterEntry.Name);
+            stencilName = stencilName.Split('_').FirstOrDefault() ?? "Unknown";
+            
+            $"Processing master stencil: {stencilName}".WriteInfo();
+            
             using (var stream = masterEntry.Open())
             {
                 XDocument masterXml = XDocument.Load(stream);
                 var masterElements = masterXml.Descendants().Where(e => e.Name.LocalName == "Master");
+                int masterCount = 0;
 
                 foreach (var master in masterElements)
                 {
+                    masterCount++;
                     string masterId = master.Attribute("ID")?.Value ?? "";
                     string masterName = master.Attribute("Name")?.Value ?? "";
+                    string baseId = master.Attribute("BaseID")?.Value ?? "";
+                    string uniqueId = master.Attribute("UniqueID")?.Value ?? "";
 
-                    if (!string.IsNullOrEmpty(masterId))
+                    // Skip if no valid ID
+                    if (string.IsNullOrEmpty(masterId))
+                        continue;
+                        
+                    // Store the simple name mapping for backward compatibility
+                    masterNames[masterId] = masterName;
+                    
+                    // Create a detailed master info object
+                    var masterInfo = new MasterShapeInfo
                     {
-                        masters[masterId] = masterName;
+                        Id = masterId,
+                        Name = masterName,
+                        StencilName = stencilName,
+                        BaseId = baseId,
+                        UniqueId = uniqueId,
+                        OriginalXml = master
+                    };
+                    
+                    // Check if it's a 1D shape (connector)
+                    var typeCell = master.Descendants()
+                        .Where(e => e.Name.LocalName == "Cell" && 
+                                e.Attribute("N")?.Value == "Type" && 
+                                e.Attribute("V")?.Value == "1")
+                        .FirstOrDefault();
+                    
+                    masterInfo.Is1DShape = typeCell != null || masterName.Contains("connector", StringComparison.OrdinalIgnoreCase);
+                    
+                    // Get the shape type
+                    var typeAttr = master.Attribute("Type");
+                    masterInfo.Type = typeAttr?.Value ?? "";
+                    
+                    // Extract size information
+                    var xForm = master.Elements().FirstOrDefault(e => e.Name.LocalName.Matches("XForm")) ??
+                                master.Descendants().FirstOrDefault(e => e.Name.LocalName.Matches("XForm"));
+                    
+                    if (xForm != null)
+                    {
+                        masterInfo.Width = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Width"));
+                        masterInfo.Height = GetDoubleValue(xForm.Elements().FirstOrDefault(e => e.Name.LocalName == "Height"));
                     }
+                    
+                    // Extract connection points
+                    ExtractConnectionPoints(master, masterInfo);
+                    
+                    // Extract layer information
+                    ExtractLayerInformation(master, masterInfo);
+                    
+                    // Extract custom properties (shape data)
+                    ExtractShapeData(master, masterInfo);
+                    
+                    // Store the master info
+                    masters[masterId] = masterInfo;
                 }
+                
+                $"Processed {masterCount} masters from stencil {stencilName}".WriteInfo();
             }
         }
 
+        // Summary output 
+        int totalMasters = masters.Count;
+        int connectorsCount = masters.Values.Count(m => m.Is1DShape);
+        int withConnectionPoints = masters.Values.Count(m => m.HasConnectionPoints);
+        int withLayers = masters.Values.Count(m => m.HasLayers);
+        
+        $"\n===== MASTER STENCIL ANALYSIS =====".WriteSuccess();
+        $"Total master stencils: {totalMasters}".WriteInfo();
+        $"Connector masters: {connectorsCount}".WriteInfo();
+        $"Masters with connection points: {withConnectionPoints}".WriteInfo();
+        $"Masters with layer information: {withLayers}".WriteInfo();
+        $"==================================\n".WriteSuccess();
+        
         return masters;
+    }
+    
+    /// <summary>
+    /// Extracts connection points from a master shape element
+    /// </summary>
+    static void ExtractConnectionPoints(XElement master, MasterShapeInfo masterInfo)
+    {
+        // Look for Connection sections
+        var connectionSections = master.Descendants().Where(e => e.Name.LocalName == "Connections").ToList();
+        
+        foreach (var connectionsSection in connectionSections)
+        {
+            var rows = connectionsSection.Elements().Where(e => e.Name.LocalName == "Row");
+            foreach (var row in rows)
+            {
+                var connectionPoint = new ConnectionPoint();
+                connectionPoint.Id = row.Attribute("IX")?.Value ?? "";
+                connectionPoint.Name = row.Attribute("Name")?.Value ?? "";
+                
+                // Extract X, Y positions from cells
+                var cellElements = row.Elements().Where(e => e.Name.LocalName == "Cell");
+                foreach (var cell in cellElements)
+                {
+                    string cellName = cell.Attribute("N")?.Value ?? "";
+                    string cellValue = cell.Attribute("V")?.Value ?? "";
+                    
+                    switch (cellName)
+                    {
+                        case "X":
+                            if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double x))
+                                connectionPoint.X = x;
+                            break;
+                        case "Y":
+                            if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double y))
+                                connectionPoint.Y = y;
+                            break;
+                        case "DirX":
+                            connectionPoint.DirX = cellValue;
+                            break;
+                        case "DirY":
+                            connectionPoint.DirY = cellValue;
+                            break;
+                        case "Type":
+                            connectionPoint.Type = cellValue;
+                            break;
+                    }
+                }
+                
+                // Only add non-empty connection points
+                if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+                {
+                    masterInfo.ConnectionPoints.Add(connectionPoint);
+                    $"Found connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for master {masterInfo.Name}".WriteNote();
+                }
+            }
+        }
+        
+        // Also check for alternative connection point format
+        var connectionElements = master.Descendants().Where(e => e.Name.LocalName == "Connection");
+        foreach (var conn in connectionElements)
+        {
+            var connectionPoint = new ConnectionPoint();
+            connectionPoint.Id = conn.Attribute("ID")?.Value ?? "";
+            connectionPoint.Name = conn.Attribute("NameU")?.Value ?? "";
+            
+            // Extract X, Y from specific child elements if they exist
+            var xElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "X");
+            var yElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Y");
+            
+            if (xElem != null)
+            {
+                if (double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
+                    connectionPoint.X = xVal;
+            }
+            
+            if (yElem != null)
+            {
+                if (double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
+                    connectionPoint.Y = yVal;
+            }
+            
+            // Only add non-empty connection points
+            if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+            {
+                masterInfo.ConnectionPoints.Add(connectionPoint);
+                $"Found alternate format connection point {connectionPoint.Id} for master {masterInfo.Name}".WriteNote();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Extracts layer information from a master shape element
+    /// </summary>
+    static void ExtractLayerInformation(XElement master, MasterShapeInfo masterInfo)
+    {
+        // Check for Layer sections
+        var layerSections = master.Descendants().Where(e => e.Name.LocalName == "Layers").ToList();
+        var layerElements = master.Descendants().Where(e => e.Name.LocalName == "Layer").ToList();
+        
+        // Process layer elements directly in the master
+        foreach (var layerElement in layerElements)
+        {
+            Layer layer = new Layer();
+            layer.Id = layerElement.Attribute("IX")?.Value ?? "";
+            
+            if (string.IsNullOrEmpty(layer.Id))
+                continue;
+                
+            // Extract layer properties
+            var layerCells = layerElement.Elements().Where(e => e.Name.LocalName == "Cell");
+            foreach (var cell in layerCells)
+            {
+                string cellName = cell.Attribute("N")?.Value ?? "";
+                string cellValue = cell.Attribute("V")?.Value ?? "";
+                
+                switch (cellName)
+                {
+                    case "Name":
+                        layer.Name = cellValue;
+                        break;
+                    case "Status":
+                        layer.Status = cellValue;
+                        break;
+                    case "Visible":
+                        layer.Visible = cellValue == "1";
+                        break;
+                    case "Print":
+                        layer.Print = cellValue == "1";
+                        break;
+                    case "Active":
+                        layer.Active = cellValue == "1";
+                        break;
+                    case "Lock":
+                        layer.Lock = cellValue == "1";
+                        break;
+                    case "Color":
+                        layer.Color = cellValue;
+                        break;
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(layer.Id))
+            {
+                masterInfo.Layers.Add(layer);
+                $"Found layer {layer.Id} ({layer.Name}) for master {masterInfo.Name}".WriteNote();
+            }
+        }
+        
+        // Also check for layer membership information
+        var layerMem = master.Descendants().Where(e => e.Name.LocalName == "LayerMem").ToList();
+        foreach (var layerMemSection in layerMem)
+        {
+            var layerMembers = layerMemSection.Elements().Where(e => e.Name.LocalName == "LayerMember");
+            foreach (var member in layerMembers)
+            {
+                string layerId = member.Value;
+                if (!string.IsNullOrEmpty(layerId) && !masterInfo.Layers.Any(l => l.Id == layerId))
+                {
+                    // Add as a simple layer reference if we don't have details
+                    var layer = new Layer { Id = layerId, Name = $"Layer {layerId}" };
+                    masterInfo.Layers.Add(layer);
+                    $"Found layer membership {layerId} for master {masterInfo.Name}".WriteNote();
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Extracts shape data (custom properties) from a master shape element
+    /// </summary>
+    static void ExtractShapeData(XElement master, MasterShapeInfo masterInfo)
+    {
+        // Get shape data (custom properties)
+        var props = master.Descendants().Where(e => e.Name.LocalName == "Prop");
+        foreach (var prop in props)
+        {
+            var propName = prop.Attribute("Name")?.Value;
+            var propValue = prop.Attribute("Value")?.Value;
+            if (!string.IsNullOrEmpty(propName) && !string.IsNullOrEmpty(propValue))
+            {
+                masterInfo.AddShapeData(propName, propValue);
+            }
+        }
+        
+        // Look for other relevant metadata in cells
+        var cells = master.Descendants().Where(e => e.Name.LocalName == "Cell");
+        foreach (var cell in cells)
+        {
+            string cellName = cell.Attribute("N")?.Value ?? "";
+            string cellValue = cell.Attribute("V")?.Value ?? "";
+            
+            // Only store certain important metadata
+            switch (cellName)
+            {
+                case "LineColor":
+                case "FillColor":
+                case "LinePattern":
+                case "FillPattern":
+                case "LineWeight":
+                case "BeginArrow":
+                case "EndArrow":
+                case "DisplayName":
+                case "Category":
+                case "Description":
+                    if (!string.IsNullOrEmpty(cellValue))
+                    {
+                        masterInfo.AddShapeData(cellName, cellValue);
+                    }
+                    break;
+            }
+        }
     }
 
     static Dictionary<string, Tuple<string, string, string>> GetConnectionInformation(ZipArchive archive)
@@ -794,9 +1142,7 @@ public class Program
         }
 
         return connections;
-    }
-
-    static double GetDoubleValue(XElement? element)
+    }    static double GetDoubleValue(XElement? element)
     {
         if (element == null)
             return 0;
@@ -806,6 +1152,77 @@ public class Program
 
         return 0;
     }
-
-
+    
+    /// <summary>
+    /// Analyzes relationships between shapes in the diagram
+    /// </summary>
+    /// <param name="shapes2D">Collection of 2D shapes</param>
+    /// <param name="shapes1D">Collection of 1D shapes (connectors)</param>
+    private static void AnalyzeShapeRelationships(IEnumerable<Shape2D> shapes2D, IEnumerable<Shape1D> shapes1D)
+    {
+        var allShapes = shapes2D.Cast<BaseShape>().Concat(shapes1D.Cast<BaseShape>()).ToList();
+        
+        // Analyze connections between shapes
+        $"\nAnalyzing shape connections:".WriteSuccess();
+        var connections = ShapeAnalyzer.AnalyzeConnections(allShapes);
+        if (connections.Count > 0)
+        {
+            $"Found {connections.Count} connections between shapes:".WriteInfo();
+            foreach (var conn in connections.Take(5)) // Show only the first 5 to avoid flooding the output
+            {
+                $"  {conn}".WriteInfo();
+            }
+            if (connections.Count > 5)
+            {
+                $"  ... and {connections.Count - 5} more connections".WriteInfo();
+            }
+        }
+        else
+        {
+            $"No connections found between shapes.".WriteInfo();
+        }
+        
+        // Group shapes by layer
+        $"\nAnalyzing layer membership:".WriteSuccess();
+        var layerGroups = ShapeAnalyzer.GroupShapesByLayer(allShapes);
+        if (layerGroups.Count > 0)
+        {
+            $"Found {layerGroups.Count} layers:".WriteInfo();
+            foreach (var layer in layerGroups.Take(5))
+            {
+                $"  Layer {layer.Key}: {layer.Value.Count} shapes".WriteInfo();
+            }
+            if (layerGroups.Count > 5)
+            {
+                $"  ... and {layerGroups.Count - 5} more layers".WriteInfo();
+            }
+        }
+        else
+        {
+            $"No layers found in the diagram.".WriteInfo();
+        }
+        
+        // Find spatial relationships
+        $"\nAnalyzing spatial relationships:".WriteSuccess();
+        var spatialRelationships = ShapeAnalyzer.FindSpatialRelationships(allShapes);
+        if (spatialRelationships.Count > 0)
+        {
+            $"Found {spatialRelationships.Count} shapes with spatial relationships:".WriteInfo();
+            foreach (var relationship in spatialRelationships.Take(5))
+            {
+                var shape = allShapes.FirstOrDefault(s => s.Id == relationship.Key);
+                $"  Shape {shape?.Text ?? relationship.Key} is related to {relationship.Value.Count} other shapes".WriteInfo();
+            }
+            if (spatialRelationships.Count > 5)
+            {
+                $"  ... and {spatialRelationships.Count - 5} more relationships".WriteInfo();
+            }
+        }
+        else
+        {
+            $"No spatial relationships found between shapes.".WriteInfo();
+        }
+        
+        $"\n".WriteInfo();
+    }
 }
