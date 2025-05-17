@@ -83,24 +83,25 @@ public class Program
         //this function will remap shapeInfos to the into Shape2D and Shape1D items then export as json
         var shape2DList = new Dictionary<string, Shape2D>();
         var shape1DList = new Dictionary<string, Shape1D>();
-        int skippedShapes = 0;
 
-        // First, count total shapes before filtering
+        // Track statistics for logging purposes
+        int shapesWithConnections = 0;
+        int shapesWithLayers = 0;
+        int shapesWithNoSpecialInfo = 0;
+
+        // First, count total shapes
         int totalShapes = shapeInfos.Count;
-        $"Total shapes before filtering: {totalShapes}".WriteInfo();
+        $"Total shapes being processed: {totalShapes}".WriteInfo();
 
         foreach (var shapeInfo in shapeInfos)
         {
-            // Skip shapes with no connection points or layers
+            // Track statistics but process ALL shapes
             bool hasConnectionPoints = shapeInfo.ConnectionPointsArray.Count > 0;
             bool hasLayers = shapeInfo.Layers.Count > 0;
             
-            // Skip shapes that don't have any connection points or layers
-            if (!hasConnectionPoints && !hasLayers)
-            {
-                skippedShapes++;
-                continue;
-            }
+            if (hasConnectionPoints) shapesWithConnections++;
+            if (hasLayers) shapesWithLayers++;
+            if (!hasConnectionPoints && !hasLayers) shapesWithNoSpecialInfo++;
 
             if (shapeInfo.Is1DShape)
             {
@@ -177,14 +178,16 @@ public class Program
             }
         }
 
-        //now remove shapes from the dictionary if they  have a parent
+        //now remove shapes from the dictionary if they have a parent
         foreach (var shape2D in shape2DList.Values.ToList())
         {
             if (!string.IsNullOrEmpty(shape2D.ParentId) && shape2DList.ContainsKey(shape2D.ParentId))
             {
                 shape2DList.Remove(shape2D.Id);
             }
-        }        VisioShapes visioShapes = new VisioShapes
+        }
+
+        VisioShapes visioShapes = new VisioShapes
         {
             filename = vsdxPath,
             Shape2D = shape2DList.Values.ToList(),
@@ -196,11 +199,12 @@ public class Program
         var data = DehydrateShapes<VisioShapes>(visioShapes);
         File.WriteAllText(outputPath, data);
 
-        // Output filtering summary
-        $"Shape filtering summary:".WriteSuccess();
-        $"  Total shapes: {totalShapes}".WriteInfo();
-        $"  Shapes with connection points or layers: {shape2DList.Count + shape1DList.Count}".WriteInfo();
-        $"  Shapes filtered out (no connection points or layers): {skippedShapes}".WriteInfo();
+        // Output summary statistics
+        $"Shape processing summary:".WriteSuccess();
+        $"  Total shapes processed: {totalShapes}".WriteInfo();
+        $"  Shapes with connection points: {shapesWithConnections}".WriteInfo();
+        $"  Shapes with layer information: {shapesWithLayers}".WriteInfo();
+        $"  Shapes with no connection points or layers: {shapesWithNoSpecialInfo}".WriteInfo();
         $"  2D shapes in output: {shape2DList.Count}".WriteInfo();
         $"  1D shapes in output: {shape1DList.Count}".WriteInfo();
     }
@@ -488,12 +492,13 @@ public class Program
                     shapeInfo.EndConnectedTo = connectionInfo.Item2;
                     shapeInfo.ConnectionPoints = connectionInfo.Item3;
                 }
-            }            // Only log debug info if we have connection or layer sections
+            }            // Check for connection or layer sections
             var hasConnectionOrLayerSections = shape.Elements().Any(e => 
                 e.Name.LocalName == "Connections" || 
                 e.Name.LocalName == "LayerMem" || 
                 e.Name.LocalName == "Layers");
                 
+            // Only log detailed info for shapes that might have connection points or layers
             if (hasConnectionOrLayerSections)
             {
                 $"Examining shape {shapeId} ({shapeName}) for connection points and layers:".WriteInfo(1);
