@@ -204,19 +204,13 @@ public class Program
         $"  Total shapes processed: {totalShapes}".WriteInfo();
         $"  Shapes with connection points: {shapesWithConnections}".WriteInfo();
         $"  Shapes with layer information: {shapesWithLayers}".WriteInfo();
-        $"  Shapes with no connection points or layers: {shapesWithNoSpecialInfo}".WriteInfo();
-        $"  2D shapes in output: {shape2DList.Count}".WriteInfo();
-        $"  1D shapes in output: {shape1DList.Count}".WriteInfo();
-    }
-
-    public static string DehydrateShapes<T>(T target) where T : class
+        //$"  Shapes with no connection points or layers: {shapesWithNoSpecialInfo}".WriteInfo();
+        $"  Root 2D shapes in output: {shape2DList.Count}".WriteInfo();
+        $"  Root 1D shapes in output: {shape1DList.Count}".WriteInfo();
+    }    public static string DehydrateShapes<T>(T target) where T : class
     {
-        var options = new JsonSerializerOptions
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
-            WriteIndented = true
-        };
-        return JsonSerializer.Serialize(target, options);
+        // Use our custom serializer that properly excludes defaults
+        return JsonExcludeDefaultSerializer.Serialize(target);
     }
 
     static void ExportToCsv(List<ShapeInfo> shapeInfos, string outputPath)
