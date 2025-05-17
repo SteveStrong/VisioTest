@@ -107,7 +107,9 @@ public class Program
                     BeginY = shapeInfo.BeginY,
                     EndX = shapeInfo.EndX,
                     EndY = shapeInfo.EndY,
-                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList()
+                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList(),
+                    Layers = shapeInfo.Layers.ToList(),
+                    LayerMembership = shapeInfo.LayerMembership
                 };
 
                 // Add to the dictionary
@@ -130,7 +132,9 @@ public class Program
                     PinY = shapeInfo.PositionY,
                     Width = shapeInfo.Width,
                     Height = shapeInfo.Height,
-                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList()
+                    ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList(),
+                    Layers = shapeInfo.Layers.ToList(),
+                    LayerMembership = shapeInfo.LayerMembership
                 };
 
                 // Add to the dictionary
@@ -523,6 +527,138 @@ public class Program
                 {
                     shapeInfo.ConnectionPointsArray.Add(connectionPoint);
                     $"Found alternative connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
+                }
+            }
+
+            // Extract layer information
+            // First, check for Layer membership information
+            var layerMember = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "LayerMem");
+            if (layerMember != null)
+            {
+                var layerMembers = layerMember.Elements().Where(e => e.Name.LocalName == "LayerMember");
+                List<string> layerIds = new List<string>();
+                
+                foreach (var member in layerMembers)
+                {
+                    string layerId = member.Value;
+                    if (!string.IsNullOrEmpty(layerId))
+                    {
+                        layerIds.Add(layerId);
+                        
+                        // Extract individual layer details if available
+                        var layerDetails = shape.Descendants()
+                            .Where(e => e.Name.LocalName == "Layer" && e.Attribute("IX")?.Value == layerId)
+                            .FirstOrDefault();
+                        
+                        if (layerDetails != null)
+                        {
+                            Layer layer = new Layer { Id = layerId };
+                            
+                            // Extract layer properties from cells
+                            var layerCells = layerDetails.Elements().Where(e => e.Name.LocalName == "Cell");
+                            foreach (var cell in layerCells)
+                            {
+                                string cellName = cell.Attribute("N")?.Value ?? "";
+                                string cellValue = cell.Attribute("V")?.Value ?? "";
+                                
+                                switch (cellName)
+                                {
+                                    case "Name":
+                                        layer.Name = cellValue;
+                                        break;
+                                    case "Status":
+                                        layer.Status = cellValue;
+                                        break;
+                                    case "Visible":
+                                        layer.Visible = cellValue == "1";
+                                        break;
+                                    case "Print":
+                                        layer.Print = cellValue == "1";
+                                        break;
+                                    case "Active":
+                                        layer.Active = cellValue == "1";
+                                        break;
+                                    case "Lock":
+                                        layer.Lock = cellValue == "1";
+                                        break;
+                                    case "Color":
+                                        layer.Color = cellValue;
+                                        break;
+                                }
+                            }
+                            
+                            if (!string.IsNullOrEmpty(layer.Id))
+                            {
+                                shapeInfo.Layers.Add(layer);
+                                $"Found layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
+                            }
+                        }
+                    }
+                }
+                
+                // Store layer membership as a comma-separated list
+                if (layerIds.Count > 0)
+                {
+                    shapeInfo.LayerMembership = string.Join(",", layerIds);
+                }
+            }
+            
+            // Also look for layer information from page
+            var layerElements = shape.Ancestors()
+                .Where(e => e.Name.LocalName == "Page")
+                .SelectMany(p => p.Elements().Where(e => e.Name.LocalName == "Layers"))
+                .SelectMany(l => l.Elements().Where(e => e.Name.LocalName == "Layer"));
+            
+            foreach (var layerElement in layerElements)
+            {
+                Layer layer = new Layer();
+                layer.Id = layerElement.Attribute("IX")?.Value ?? "";
+                
+                if (string.IsNullOrEmpty(layer.Id))
+                    continue;
+                
+                // Check if shape is a member of this layer
+                if (shapeInfo.LayerMembership.Contains(layer.Id))
+                {
+                    // Extract layer properties
+                    var layerCells = layerElement.Elements().Where(e => e.Name.LocalName == "Cell");
+                    foreach (var cell in layerCells)
+                    {
+                        string cellName = cell.Attribute("N")?.Value ?? "";
+                        string cellValue = cell.Attribute("V")?.Value ?? "";
+                        
+                        switch (cellName)
+                        {
+                            case "Name":
+                                layer.Name = cellValue;
+                                break;
+                            case "Status":
+                                layer.Status = cellValue;
+                                break;
+                            case "Visible":
+                                layer.Visible = cellValue == "1";
+                                break;
+                            case "Print":
+                                layer.Print = cellValue == "1";
+                                break;
+                            case "Active":
+                                layer.Active = cellValue == "1";
+                                break;
+                            case "Lock":
+                                layer.Lock = cellValue == "1";
+                                break;
+                            case "Color":
+                                layer.Color = cellValue;
+                                break;
+                        }
+                    }
+                    
+                    // Check if we already have this layer
+                    if (!shapeInfo.Layers.Any(l => l.Id == layer.Id))
+                    {
+                        shapeInfo.Layers.Add(layer);
+                        $"Found page layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
+                    }
                 }
             }
 

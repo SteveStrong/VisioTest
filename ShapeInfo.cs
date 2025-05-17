@@ -47,6 +47,10 @@ public class ShapeInfo
     public string ShapeData { get; set; } = string.Empty;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public List<ConnectionPoint> ConnectionPointsArray { get; set; } = new List<ConnectionPoint>();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public List<Layer> Layers { get; set; } = new List<Layer>();
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string LayerMembership { get; set; } = string.Empty;
 }
 
 public class VisioShapes
@@ -75,6 +79,12 @@ public class ShapeSheet
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public List<ConnectionPoint> ConnectionPoints { get; set; } = new List<ConnectionPoint>();
+    
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public List<Layer> Layers { get; set; } = new List<Layer>();
+    
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public string LayerMembership { get; set; } = string.Empty;
 
     public void AddSubShape(ShapeSheet shape)
     {
