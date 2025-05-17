@@ -31,9 +31,7 @@ public class Program
         try
         {
             // Use a default file in the Documents folder if no arguments provided
-            string documentsFolder = Path.Combine(dir, "Documents");
-            // Just process one file for debugging
-            string[] vsdxFiles = new string[] { Path.Combine(documentsFolder, "Basic Flowchart Diagram - Student Enrollment Process.vsdx") };
+            string documentsFolder = Path.Combine(dir, "Documents");            string[] vsdxFiles = Directory.GetFiles(documentsFolder, "*.vsdx");
 
 
 
@@ -275,16 +273,15 @@ public class Program
                     }
                       // Extract all shapes from the page
                     var shapes = pageXml.Descendants().Where(e => e.Name.LocalName == "Shape");
-                    
-                    // Debug: Check if there are any Connection sections in the XML
+                      // Debug: Check if there are any Connection sections in the XML
                     var connectionSections = pageXml.Descendants().Where(e => e.Name.LocalName == "Connections").ToList();
                     if (connectionSections.Any())
                     {
-                        Console.WriteLine($"Found {connectionSections.Count} connection sections in page {pageName}");
+                        $"Found {connectionSections.Count} connection sections in page {pageName}".WriteInfo();
                     }
                     else
                     {
-                        Console.WriteLine($"No connection sections found in page {pageName}");
+                        $"No connection sections found in page {pageName}".WriteInfo();
                     }
                     
                     // Debug: Check if there are any Layer sections in the XML
@@ -292,11 +289,11 @@ public class Program
                     var layerElements = pageXml.Descendants().Where(e => e.Name.LocalName == "Layer").ToList();
                     if (layerSections.Any() || layerElements.Any())
                     {
-                        Console.WriteLine($"Found {layerSections.Count} layer sections and {layerElements.Count} layer elements in page {pageName}");
+                        $"Found {layerSections.Count} layer sections and {layerElements.Count} layer elements in page {pageName}".WriteInfo();
                     }
                     else
                     {
-                        Console.WriteLine($"No layer information found in page {pageName}");
+                        $"No layer information found in page {pageName}".WriteInfo();
                     }
 
                     // Process all shapes including subshapes
@@ -314,21 +311,19 @@ public class Program
             Console.WriteLine($"Unexpected error processing VSDX file: {ex.Message}");
             Console.WriteLine(ex.StackTrace);
             throw; // Re-throw to let the caller handle repair attempts
-        }
-
-        // Print summary statistics after processing all shapes
+        }        // Print summary statistics after processing all shapes
         int totalConnectionPoints = shapeInfos.Sum(s => s.ConnectionPointsArray.Count);
         int totalLayers = shapeInfos.SelectMany(s => s.Layers).Select(l => l.Id).Distinct().Count();
         int shapesWithConnectionPoints = shapeInfos.Count(s => s.ConnectionPointsArray.Count > 0);
         int shapesWithLayers = shapeInfos.Count(s => s.Layers.Count > 0);
         
-        Console.WriteLine("\n===== SHAPE ANALYSIS SUMMARY =====");
-        Console.WriteLine($"Total shapes processed: {shapeInfos.Count}");
-        Console.WriteLine($"Shapes with connection points: {shapesWithConnectionPoints}");
-        Console.WriteLine($"Total connection points found: {totalConnectionPoints}");
-        Console.WriteLine($"Shapes assigned to layers: {shapesWithLayers}");
-        Console.WriteLine($"Unique layers found: {totalLayers}");
-        Console.WriteLine("==================================\n");
+        "\n===== SHAPE ANALYSIS SUMMARY =====".WriteSuccess();
+        $"Total shapes processed: {shapeInfos.Count}".WriteInfo();
+        $"Shapes with connection points: {shapesWithConnectionPoints}".WriteInfo();
+        $"Total connection points found: {totalConnectionPoints}".WriteInfo();
+        $"Shapes assigned to layers: {shapesWithLayers}".WriteInfo();
+        $"Unique layers found: {totalLayers}".WriteInfo();
+        "==================================\n".WriteSuccess();
 
         return shapeInfos;
     }
@@ -475,10 +470,10 @@ public class Program
                     shapeInfo.ConnectionPoints = connectionInfo.Item3;
                 }
             }            // Debug: Print the raw structure of the shape to look for connection points and layers
-            Console.WriteLine($"Examining shape {shapeId} ({shapeName}) for connection points and layers:");
-            Console.WriteLine($"  Shape has {shape.Elements().Count()} direct child elements");
+            $"Examining shape {shapeId} ({shapeName}) for connection points and layers:".WriteInfo(1);
+            $"  Shape has {shape.Elements().Count()} direct child elements".WriteInfo(2);
             var childElementNames = shape.Elements().Select(e => e.Name.LocalName).Distinct().ToList();
-            Console.WriteLine($"  Child element types: {string.Join(", ", childElementNames)}");
+            $"  Child element types: {string.Join(", ", childElementNames)}".WriteInfo(2);
             
             // Extract connection points
             // In Visio, connection points are stored in the Connections section
@@ -522,10 +517,9 @@ public class Program
                     }
                     
                     // Only add non-empty connection points                    if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
-                    {
-                        shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                    {                        shapeInfo.ConnectionPointsArray.Add(connectionPoint);
                         $"Found connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
-                        Console.WriteLine($"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})");
+                        $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})".WriteInfo(2);
                     }
                 }
             }
@@ -555,10 +549,9 @@ public class Program
                 }
                   // Only add non-empty connection points
                 if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
-                {
-                    shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                {                    shapeInfo.ConnectionPointsArray.Add(connectionPoint);
                     $"Found alternative connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
-                    Console.WriteLine($"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has alternative connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})");
+                    $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has alternative connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})".WriteInfo(2);
                 }
             }
 
@@ -619,10 +612,9 @@ public class Program
                                 }
                             }
                               if (!string.IsNullOrEmpty(layer.Id))
-                            {
-                                shapeInfo.Layers.Add(layer);
+                            {                                shapeInfo.Layers.Add(layer);
                                 $"Found layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
-                                Console.WriteLine($"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to layer: {layer.Id} - {layer.Name}");
+                                $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to layer: {layer.Id} - {layer.Name}".WriteInfo(2);
                             }
                         }
                     }
@@ -686,16 +678,15 @@ public class Program
                     }
                       // Check if we already have this layer
                     if (!shapeInfo.Layers.Any(l => l.Id == layer.Id))
-                    {
-                        shapeInfo.Layers.Add(layer);
+                    {                        shapeInfo.Layers.Add(layer);
                         $"Found page layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
-                        Console.WriteLine($"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to page layer: {layer.Id} - {layer.Name}");
+                        $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to page layer: {layer.Id} - {layer.Name}".WriteInfo(2);
                     }
                 }
             }            // Print summary of connection points and layers for this shape
             if (shapeInfo.ConnectionPointsArray.Count > 0 || shapeInfo.Layers.Count > 0)
             {
-                Console.WriteLine($"Shape Summary: {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has {shapeInfo.ConnectionPointsArray.Count} connection points and belongs to {shapeInfo.Layers.Count} layers");
+                $"Shape Summary: {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has {shapeInfo.ConnectionPointsArray.Count} connection points and belongs to {shapeInfo.Layers.Count} layers".WriteSuccess();
             }
 
             shapeInfos.Add(shapeInfo);
