@@ -1,7 +1,31 @@
+using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace VisioShapeExtractor;
+
+public class EmptyCollectionConverter<T> : JsonConverter<List<T>>
+{
+    public override List<T> Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        // Default deserialization behavior
+        return JsonSerializer.Deserialize<List<T>>(ref reader, options) ?? new List<T>();
+    }
+
+    public override void Write(Utf8JsonWriter writer, List<T> value, JsonSerializerOptions options)
+    {
+        // Don't write anything if the list is empty
+        if (value == null || value.Count == 0)
+        {
+            writer.WriteNullValue();
+        }
+        else
+        {
+            JsonSerializer.Serialize(writer, value, options);
+        }
+    }
+}
 
 public class ShapeInfo
 {
@@ -46,8 +70,10 @@ public class ShapeInfo
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string ShapeData { get; set; } = string.Empty;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(EmptyCollectionConverter<ConnectionPoint>))]
     public List<ConnectionPoint> ConnectionPointsArray { get; set; } = new List<ConnectionPoint>();
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(EmptyCollectionConverter<Layer>))]
     public List<Layer> Layers { get; set; } = new List<Layer>();
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public string LayerMembership { get; set; } = string.Empty;
@@ -78,9 +104,11 @@ public class ShapeSheet
     public List<ShapeSheet> SubShapes { get; set; } = null!;
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(EmptyCollectionConverter<ConnectionPoint>))]
     public List<ConnectionPoint> ConnectionPoints { get; set; } = new List<ConnectionPoint>();
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    [JsonConverter(typeof(EmptyCollectionConverter<Layer>))]
     public List<Layer> Layers { get; set; } = new List<Layer>();
     
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

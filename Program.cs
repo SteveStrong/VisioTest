@@ -199,7 +199,7 @@ public class Program
 
     static void ExportToCsv(List<ShapeInfo> shapeInfos, string outputPath)
     {
-        var outputCsvPath = outputPath.Replace(".vsdx", "_export.csv");
+        var outputCsvPath = outputPath.Replace(".vsdx", ".csv");
 
         // Ensure directory exists
         var directory = Path.GetDirectoryName(outputCsvPath);
@@ -228,30 +228,22 @@ public class Program
                 throw new InvalidDataException($"The file '{vsdxPath}' is not a valid ZIP archive or is corrupt.");
             }
             
-            // Create XML output directory based on the VSDX filename
-            string xmlOutputDir = Path.Combine(Path.GetDirectoryName(vsdxPath) ?? "", 
-                                             Path.GetFileNameWithoutExtension(vsdxPath) + "_XML");
-            
-            // Ensure the directory exists
-            if (!Directory.Exists(xmlOutputDir))
-            {
-                Directory.CreateDirectory(xmlOutputDir);
-            }
+
 
             // Use ZipFile to extract the VSDX (which is a ZIP file) and process the XML directly
             using (var archive = ZipFile.OpenRead(vsdxPath))
             {
                 // Save all XML files from the archive
-                foreach (var entry in archive.Entries.Where(e => e.FullName.EndsWith(".xml")))
-                {
-                    string outputPath = Path.Combine(xmlOutputDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                // foreach (var entry in archive.Entries.Where(e => e.FullName.EndsWith(".xml")))
+                // {
+                //     string outputPath = Path.Combine(xmlOutputDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                     
-                    // Ensure directory for this file exists
-                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
+                //     // Ensure directory for this file exists
+                //     Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
                     
-                    // Extract and save the XML file
-                    entry.ExtractToFile(outputPath, overwrite: true);
-                }
+                //     // Extract and save the XML file
+                //     entry.ExtractToFile(outputPath, overwrite: true);
+                // }
                 
                 // First, get all master information (stencils)
                 Dictionary<string, string> masters = GetMasterInformation(archive);
