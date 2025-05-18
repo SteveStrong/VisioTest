@@ -600,6 +600,63 @@ public class Program
                 }
             }
             
+            // Look for connection points in Section N="Connection" format (alternate format)
+            var sectionConnections = shape.Elements()
+                .Where(e => e.Name.LocalName == "Section" && 
+                      e.Attribute("N")?.Value == "Connection")
+                .ToList();
+                
+            foreach (var section in sectionConnections)
+            {
+                var rows = section.Elements().Where(e => e.Name.LocalName == "Row");
+                foreach (var row in rows)
+                {
+                    var connectionPoint = new ConnectionPoint();
+                    connectionPoint.Id = row.Attribute("N")?.Value ?? "";
+                    
+                    // Extract X, Y positions from cells
+                    var cellElements = row.Elements().Where(e => e.Name.LocalName == "Cell");
+                    foreach (var cell in cellElements)
+                    {
+                        string cellName = cell.Attribute("N")?.Value ?? "";
+                        string cellValue = cell.Attribute("V")?.Value ?? "";
+                        
+                        switch (cellName)
+                        {
+                            case "X":
+                                // Try to parse as a direct number or a formula
+                                if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double x))
+                                    connectionPoint.X = x;
+                                else
+                                    connectionPoint.X = FormulaParser.ParseFormula(cellValue, shapeInfo.Width, shapeInfo.Height);
+                                break;
+                            case "Y":                                // Try to parse as a direct number or a formula
+                                if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double y))
+                                    connectionPoint.Y = y;
+                                else
+                                    connectionPoint.Y = FormulaParser.ParseFormula(cellValue, shapeInfo.Width, shapeInfo.Height);
+                                break;
+                            case "DirX":
+                                connectionPoint.DirX = cellValue;
+                                break;
+                            case "DirY":
+                                connectionPoint.DirY = cellValue;
+                                break;                            case "Type":
+                                connectionPoint.Type = cellValue;
+                                break;
+                        }
+                    }
+                    
+                    // Only add non-empty connection points
+                    if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+                    {
+                        shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                        $"Found Section-format connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
+                        $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has Section-format connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})".WriteInfo(2);
+                    }
+                }
+            }
+            
             // Look for alternative connection point format - Connection elements
             var connectionElements = shape.Descendants().Where(e => e.Name.LocalName == "Connection");
             foreach (var conn in connectionElements)
@@ -611,176 +668,45 @@ public class Program
                 // Extract X, Y from specific child elements if they exist
                 var xElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "X");
                 var yElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Y");
+                var dirXElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "DirX");
+                var dirYElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "DirY");
+                var typeElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Type");
                 
-                if (xElem != null)
+                if (xElem != null && double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
                 {
-                    if (double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
-                        connectionPoint.X = xVal;
+                    connectionPoint.X = xVal;
                 }
                 
-                if (yElem != null)
+                if (yElem != null && double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
                 {
-                    if (double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
-                        connectionPoint.Y = yVal;
+                    connectionPoint.Y = yVal;
                 }
-                  // Only add non-empty connection points
+                
+                if (dirXElem != null)
+                {
+                    connectionPoint.DirX = dirXElem.Value;
+                }
+                  if (dirYElem != null)
+                {
+                    connectionPoint.DirY = dirYElem.Value;
+                }
+                
+                if (typeElem != null)
+                {
+                    connectionPoint.Type = typeElem.Value;
+                }
+                
+                // Only add non-empty connection points
                 if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
-                {                    shapeInfo.ConnectionPointsArray.Add(connectionPoint);
-                    $"Found alternative connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
-                    $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has alternative connection point: {connectionPoint.Id} at position ({connectionPoint.X}, {connectionPoint.Y})".WriteInfo(2);
-                }
-            }
-
-            // Extract layer information
-            // First, check for Layer membership information
-            var layerMember = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "LayerMember");
-            if (layerMember != null)
-            {
-                var layerMembers = layerMember.Elements().Where(e => e.Name.LocalName == "LayerMember");
-                List<string> layerIds = new List<string>();
-                
-                foreach (var member in layerMembers)
                 {
-                    string layerId = member.Value;
-                    if (!string.IsNullOrEmpty(layerId))
-                    {
-                        layerIds.Add(layerId);
-                        
-                        // Extract individual layer details if available
-                        var layerDetails = shape.Descendants()
-                            .Where(e => e.Name.LocalName == "Layer" && e.Attribute("IX")?.Value == layerId)
-                            .FirstOrDefault();
-                        
-                        if (layerDetails != null)
-                        {
-                            Layer layer = new Layer { Id = layerId };
-                            
-                            // Extract layer properties from cells
-                            var layerCells = layerDetails.Elements().Where(e => e.Name.LocalName == "Cell");
-                            foreach (var cell in layerCells)
-                            {
-                                string cellName = cell.Attribute("N")?.Value ?? "";
-                                string cellValue = cell.Attribute("V")?.Value ?? "";
-                                
-                                switch (cellName)
-                                {
-                                    case "Name":
-                                        layer.Name = cellValue;
-                                        break;
-                                    case "Status":
-                                        layer.Status = cellValue;
-                                        break;
-                                    case "Visible":
-                                        layer.Visible = cellValue == "1";
-                                        break;
-                                    case "Print":
-                                        layer.Print = cellValue == "1";
-                                        break;
-                                    case "Active":
-                                        layer.Active = cellValue == "1";
-                                        break;
-                                    case "Lock":
-                                        layer.Lock = cellValue == "1";
-                                        break;
-                                    case "Color":
-                                        layer.Color = cellValue;
-                                        break;
-                                }
-                            }
-                              if (!string.IsNullOrEmpty(layer.Id))
-                            {
-                                shapeInfo.Layers.Add(layer);
-                                $"Found layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
-                                $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to layer: {layer.Id} - {layer.Name}".WriteInfo(2);
-                            }
-                        }
-                    }
-                }
-                
-                // Store layer membership as a comma-separated list
-                if (layerIds.Count > 0)
-                {
-                    shapeInfo.LayerMembership = string.Join(",", layerIds);
-                }
-            }
-            
-            // Also look for layer information from page
-            var layerElements = shape.Ancestors()
-                .Where(e => e.Name.LocalName == "Page")
-                .SelectMany(p => p.Elements().Where(e => e.Name.LocalName == "Layers"))
-                .SelectMany(l => l.Elements().Where(e => e.Name.LocalName == "Layer"));
-            
-            foreach (var layerElement in layerElements)
-            {
-                Layer layer = new Layer();
-                layer.Id = layerElement.Attribute("IX")?.Value ?? "";
-                
-                if (string.IsNullOrEmpty(layer.Id))
-                    continue;
-                
-                // Check if shape is a member of this layer
-                if (shapeInfo.LayerMembership.Contains(layer.Id))
-                {
-                    // Extract layer properties
-                    var layerCells = layerElement.Elements().Where(e => e.Name.LocalName == "Cell");
-                    foreach (var cell in layerCells)
-                    {
-                        string cellName = cell.Attribute("N")?.Value ?? "";
-                        string cellValue = cell.Attribute("V")?.Value ?? "";
-                        
-                        switch (cellName)
-                        {
-                            case "Name":
-                                layer.Name = cellValue;
-                                break;
-                            case "Status":
-                                layer.Status = cellValue;
-                                break;
-                            case "Visible":
-                                layer.Visible = cellValue == "1";
-                                break;
-                            case "Print":
-                                layer.Print = cellValue == "1";
-                                break;
-                            case "Active":
-                                layer.Active = cellValue == "1";
-                                break;
-                            case "Lock":
-                                layer.Lock = cellValue == "1";
-                                break;
-                            case "Color":
-                                layer.Color = cellValue;
-                                break;
-                        }
-                    }
-                      // Check if we already have this layer
-                    if (!shapeInfo.Layers.Any(l => l.Id == layer.Id))
-                    {                        shapeInfo.Layers.Add(layer);
-                        $"Found page layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
-                        $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to page layer: {layer.Id} - {layer.Name}".WriteInfo(2);
-                    }
-                }
-            }            // Print summary of connection points and layers for this shape
-            if (shapeInfo.ConnectionPointsArray.Count > 0 || shapeInfo.Layers.Count > 0)
-            {
-                $"Shape Summary: {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) has {shapeInfo.ConnectionPointsArray.Count} connection points and belongs to {shapeInfo.Layers.Count} layers".WriteSuccess();
-            }
-
-            shapeInfos.Add(shapeInfo);
-            // If this is a group shape, process its children with this shape as the parent
-            if (shapeInfo.ShapeType == "Group")
-            {
-                // Process child shapes recursively
-                var childShapes = shape.Elements().Where(e => e.Name.LocalName == "Shapes")
-                                        .SelectMany(e => e.Elements().Where(c => c.Name.LocalName == "Shape"));
-
-                if (childShapes.Any())
-                {
-                    ProcessShapes(childShapes, pageName, masters, connections, shapeInfos, shapeName, shapeId);
+                    shapeInfo.ConnectionPointsArray.Add(connectionPoint);
+                    $"Found direct connection element {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for shape {shapeInfo.ShapeId}".WriteNote();
                 }
             }
         }
-    }    /// <summary>
+    }
+    
+    /// <summary>
     /// Extracts detailed information about master stencils from a Visio document
     /// </summary>
     /// <param name="archive">The ZipArchive containing the VSDX file contents</param>
@@ -796,10 +722,13 @@ public class Program
         foreach (var entry in masterRelatedEntries.Take(10))
         {
             $"  {entry.FullName}".WriteInfo();
-        }
-
-        // First identify stencil documents to get stencil names
-        var stencilDocs = archive.Entries.Where(e => e.FullName.StartsWith("visio/masters/") && e.FullName.Contains("_") && e.FullName.EndsWith(".xml")).ToList();
+        }        // First identify stencil documents to get stencil names
+        var stencilDocs = archive.Entries
+            .Where(e => e.FullName.StartsWith("visio/masters/") && 
+                        e.FullName.EndsWith(".xml") && 
+                        !e.FullName.EndsWith("masters.xml") && 
+                        !e.FullName.Contains("/_rels/"))
+            .ToList();
         
         $"Found {stencilDocs.Count} master stencil documents.".WriteInfo();
         
@@ -953,7 +882,59 @@ public class Program
             }
         }
         
-        // Also check for alternative connection point format
+        // Look for connection points in Section N="Connection" format
+        var sectionConnections = master.Descendants()
+            .Where(e => e.Name.LocalName == "Section" && 
+                  e.Attribute("N")?.Value == "Connection")
+            .ToList();
+            
+        foreach (var section in sectionConnections)
+        {
+            var rows = section.Elements().Where(e => e.Name.LocalName == "Row");
+            foreach (var row in rows)
+            {
+                var connectionPoint = new ConnectionPoint();
+                connectionPoint.Id = row.Attribute("N")?.Value ?? "";
+                
+                // Extract X, Y positions from cells
+                var cellElements = row.Elements().Where(e => e.Name.LocalName == "Cell");
+                foreach (var cell in cellElements)
+                {
+                    string cellName = cell.Attribute("N")?.Value ?? "";
+                    string cellValue = cell.Attribute("V")?.Value ?? "";
+                    
+                    switch (cellName)
+                    {
+                        case "X":
+                            if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double x))
+                                connectionPoint.X = x;
+                            break;
+                        case "Y":
+                            if (double.TryParse(cellValue, NumberStyles.Any, CultureInfo.InvariantCulture, out double y))
+                                connectionPoint.Y = y;
+                            break;
+                        case "DirX":
+                            connectionPoint.DirX = cellValue;
+                            break;
+                        case "DirY":
+                            connectionPoint.DirY = cellValue;
+                            break;
+                        case "Type":
+                            connectionPoint.Type = cellValue;
+                            break;
+                    }
+                }
+                
+                // Only add non-empty connection points
+                if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
+                {
+                    masterInfo.ConnectionPoints.Add(connectionPoint);
+                    $"Found Section-format connection point {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for master {masterInfo.Name}".WriteNote();
+                }
+            }
+        }
+        
+        // Also check for alternative connection point format - direct Connection elements
         var connectionElements = master.Descendants().Where(e => e.Name.LocalName == "Connection");
         foreach (var conn in connectionElements)
         {
@@ -964,24 +945,40 @@ public class Program
             // Extract X, Y from specific child elements if they exist
             var xElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "X");
             var yElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Y");
+            var dirXElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "DirX");
+            var dirYElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "DirY");
+            var typeElem = conn.Elements().FirstOrDefault(e => e.Name.LocalName == "Type");
             
-            if (xElem != null)
+            if (xElem != null && double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
             {
-                if (double.TryParse(xElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double xVal))
-                    connectionPoint.X = xVal;
+                connectionPoint.X = xVal;
             }
             
-            if (yElem != null)
+            if (yElem != null && double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
             {
-                if (double.TryParse(yElem.Value, NumberStyles.Any, CultureInfo.InvariantCulture, out double yVal))
-                    connectionPoint.Y = yVal;
+                connectionPoint.Y = yVal;
+            }
+            
+            if (dirXElem != null)
+            {
+                connectionPoint.DirX = dirXElem.Value;
+            }
+            
+            if (dirYElem != null)
+            {
+                connectionPoint.DirY = dirYElem.Value;
+            }
+            
+            if (typeElem != null)
+            {
+                connectionPoint.Type = typeElem.Value;
             }
             
             // Only add non-empty connection points
             if (!string.IsNullOrEmpty(connectionPoint.Id) && (connectionPoint.X != 0 || connectionPoint.Y != 0))
             {
                 masterInfo.ConnectionPoints.Add(connectionPoint);
-                $"Found alternate format connection point {connectionPoint.Id} for master {masterInfo.Name}".WriteNote();
+                $"Found direct connection element {connectionPoint.Id} at ({connectionPoint.X}, {connectionPoint.Y}) for master {masterInfo.Name}".WriteNote();
             }
         }
     }
