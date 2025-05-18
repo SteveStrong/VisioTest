@@ -65,7 +65,7 @@ public class Program
                     
                     $"Processing Visio file: {vsdxPath}".WriteInfo();
                     
-                    var shapeInfos = ExtractShapeInformation(vsdxPath);
+                    var shapeInfos = ExtractShapeInformation(vsdxPath, documentsFolder);
                     
                     if (shapeInfos.Count > 0)
                     {
@@ -139,7 +139,8 @@ public class Program
                     ConnectionPoints = shapeInfo.ConnectionPointsArray.ToList(),
                     Layers = shapeInfo.Layers.ToList(),
                     LayerMembership = shapeInfo.LayerMembership
-                };                // Parse shape data if available
+                };
+                // Parse shape data if available
                 if (!string.IsNullOrEmpty(shapeInfo.ShapeData))
                 {
                     shape1D.ParseShapeData(shapeInfo.ShapeData);
@@ -256,7 +257,7 @@ public class Program
         }
     }
 
-    static List<ShapeInfo> ExtractShapeInformation(string vsdxPath)
+    static List<ShapeInfo> ExtractShapeInformation(string vsdxPath, string xmlOutputDir)
     {
         List<ShapeInfo> shapeInfos = new List<ShapeInfo>();
 
@@ -274,16 +275,18 @@ public class Program
             using (var archive = ZipFile.OpenRead(vsdxPath))
             {
                 // Save all XML files from the archive
-                // foreach (var entry in archive.Entries.Where(e => e.FullName.EndsWith(".xml")))
-                // {
-                //     string outputPath = Path.Combine(xmlOutputDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
+                foreach (var entry in archive.Entries.Where(e => e.FullName.EndsWith(".xml")))
+                {
+                    string outputPath = Path.Combine(xmlOutputDir, entry.FullName.Replace('/', Path.DirectorySeparatorChar));
                     
-                //     // Ensure directory for this file exists
-                //     Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
+                    // Ensure directory for this file exists
+                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
                     
-                //     // Extract and save the XML file
-                //     entry.ExtractToFile(outputPath, overwrite: true);
-                // }                  // First, get all master information (stencils)
+                    // Extract and save the XML file
+                    entry.ExtractToFile(outputPath, overwrite: true);
+                }                  
+                // 
+                // First, get all master information (stencils)
                 Dictionary<string, MasterShapeInfo> masters = GetMasterInformation(archive);
                 
                 // Export master stencil information to JSON if any were found
@@ -630,7 +633,7 @@ public class Program
 
             // Extract layer information
             // First, check for Layer membership information
-            var layerMember = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "LayerMem");
+            var layerMember = shape.Elements().FirstOrDefault(e => e.Name.LocalName == "LayerMember");
             if (layerMember != null)
             {
                 var layerMembers = layerMember.Elements().Where(e => e.Name.LocalName == "LayerMember");
@@ -685,7 +688,8 @@ public class Program
                                 }
                             }
                               if (!string.IsNullOrEmpty(layer.Id))
-                            {                                shapeInfo.Layers.Add(layer);
+                            {
+                                shapeInfo.Layers.Add(layer);
                                 $"Found layer {layer.Id} ({layer.Name}) for shape {shapeInfo.ShapeId}".WriteNote();
                                 $"Shape {shapeInfo.ShapeId} ({shapeInfo.ShapeName}) belongs to layer: {layer.Id} - {layer.Name}".WriteInfo(2);
                             }
@@ -792,11 +796,10 @@ public class Program
         foreach (var entry in masterRelatedEntries.Take(10))
         {
             $"  {entry.FullName}".WriteInfo();
-        }        // First identify stencil documents to get stencil names - be more flexible in the pattern matching
-        var stencilDocs = archive.Entries.Where(e => 
-            (e.FullName.StartsWith("visio/masters/") && e.FullName.EndsWith(".xml")) || 
-            (e.FullName.Contains("/master") && e.FullName.EndsWith(".xml"))
-        ).ToList();
+        }
+
+        // First identify stencil documents to get stencil names
+        var stencilDocs = archive.Entries.Where(e => e.FullName.StartsWith("visio/masters/") && e.FullName.Contains("_") && e.FullName.EndsWith(".xml")).ToList();
         
         $"Found {stencilDocs.Count} master stencil documents.".WriteInfo();
         
