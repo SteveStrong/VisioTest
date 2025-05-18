@@ -345,7 +345,7 @@ public class Program
                     Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? "");
                     
                     // Extract and save the XML file
-                    entry.ExtractToFile(outputPath, overwrite: true);
+                    //entry.ExtractToFile(outputPath, overwrite: true);
                 }                  
                 // 
                 // First, get all master information (stencils)
@@ -559,7 +559,11 @@ public class Program
                 }
             }
 
-            if (shapeInfo.MasterName.Contains("connector", StringComparison.OrdinalIgnoreCase))
+            if ( string.IsNullOrEmpty(shapeInfo.MasterName))
+            {
+                shapeInfo.Is1DShape = false;
+            }
+            else if (shapeInfo.MasterName.Contains("connector", StringComparison.OrdinalIgnoreCase))
             {
                 shapeInfo.Is1DShape = true;
             }

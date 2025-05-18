@@ -26,7 +26,7 @@ namespace VisioShapeExtractor
         /// <summary>
         /// Name of the master shape this shape is based on
         /// </summary>
-        public string Master { get; set; } = string.Empty;
+        public string? Master { get; set; }
 
         /// <summary>
         /// Type of the shape (e.g., Group, Shape, etc.)
@@ -36,7 +36,7 @@ namespace VisioShapeExtractor
         /// <summary>
         /// ID of the parent shape if this is a child shape
         /// </summary>
-        public string ParentId { get; set; } = string.Empty;
+        public string? ParentId { get; set; }
 
         /// <summary>
         /// List of child shapes (for group shapes)
@@ -57,7 +57,7 @@ namespace VisioShapeExtractor
         /// <summary>
         /// Layer membership string (comma-separated list of layer IDs)
         /// </summary>
-        public string LayerMembership { get; set; } = string.Empty;
+        public string? LayerMembership { get; set; }
 
         /// <summary>
         /// Adds a child shape to this shape

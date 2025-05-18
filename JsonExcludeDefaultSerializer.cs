@@ -12,7 +12,7 @@ public static class JsonExcludeDefaultSerializer
     {
         var options = new JsonSerializerOptions
         {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull | JsonIgnoreCondition.WhenWritingDefault,
             WriteIndented = writeIndented,
         };
         

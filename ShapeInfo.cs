@@ -11,10 +11,10 @@ public class ShapeInfo
 {
     public string ShapeId { get; set; } = string.Empty;
     public string ShapeName { get; set; } = string.Empty;
-    public string ParentShapeId { get; set; } = string.Empty;
+    public string? ParentShapeId { get; set; }
     public string ShapeText { get; set; } = string.Empty;
     public string ShapeType { get; set; } = string.Empty;
-    public string MasterName { get; set; } = string.Empty;
+    public string? MasterName { get; set; }
     public bool Is1DShape { get; set; }
     public string BeginConnectedTo { get; set; } = string.Empty;
     public string EndConnectedTo { get; set; } = string.Empty;
