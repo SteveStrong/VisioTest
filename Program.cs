@@ -103,18 +103,25 @@ public class Program
         int shapesWithConnections = 0;
         int shapesWithLayers = 0;
         int shapesWithNoSpecialInfo = 0;
+        int totalConnectionPoints = 0;
 
         // First, count total shapes
         int totalShapes = shapeInfos.Count;
         $"Total shapes being processed: {totalShapes}".WriteInfo();
 
+        // First pass: Create all shapes
         foreach (var shapeInfo in shapeInfos)
         {
             // Track statistics but process ALL shapes
             bool hasConnectionPoints = shapeInfo.ConnectionPointsArray.Count > 0;
             bool hasLayers = shapeInfo.Layers.Count > 0;
             
-            if (hasConnectionPoints) shapesWithConnections++;
+            if (hasConnectionPoints)
+            {
+                shapesWithConnections++;
+                totalConnectionPoints += shapeInfo.ConnectionPointsArray.Count;
+            }
+            
             if (hasLayers) shapesWithLayers++;
             if (!hasConnectionPoints && !hasLayers) shapesWithNoSpecialInfo++;
 
@@ -140,6 +147,7 @@ public class Program
                     Layers = shapeInfo.Layers.ToList(),
                     LayerMembership = shapeInfo.LayerMembership
                 };
+                
                 // Parse shape data if available
                 if (!string.IsNullOrEmpty(shapeInfo.ShapeData))
                 {
@@ -185,6 +193,31 @@ public class Program
             }
         }
 
+        // Second pass: Process connection points and relationships
+        foreach (var connector in shape1DList.Values)
+        {
+            // For each connector, identify its endpoints and related connection points
+            if (!string.IsNullOrEmpty(connector.FromShapeId) && shape2DList.TryGetValue(connector.FromShapeId, out var sourceShape))
+            {
+                // Try to find the specific connection point that this connector attaches to
+                var sourceConnectionPoint = connector.GetSourceConnectionPoint(sourceShape);
+                if (sourceConnectionPoint != null)
+                {
+                    $"Connector {connector.Id} connects from shape {sourceShape.Id} at connection point {sourceConnectionPoint.Id} ({sourceConnectionPoint.X}, {sourceConnectionPoint.Y})".WriteNote();
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(connector.ToShapeId) && shape2DList.TryGetValue(connector.ToShapeId, out var targetShape))
+            {
+                // Try to find the specific connection point that this connector attaches to
+                var targetConnectionPoint = connector.GetTargetConnectionPoint(targetShape);
+                if (targetConnectionPoint != null)
+                {
+                    $"Connector {connector.Id} connects to shape {targetShape.Id} at connection point {targetConnectionPoint.Id} ({targetConnectionPoint.X}, {targetConnectionPoint.Y})".WriteNote();
+                }
+            }
+        }
+
         // use the information in the dictionary to move child shapes to the parent shape
         foreach (var shape2D in shape2DList.Values)
         {
@@ -211,7 +244,24 @@ public class Program
             {
                 shape2DList.Remove(shape2D.Id);
             }
-        }        VisioShapes visioShapes = new VisioShapes
+        }
+        
+        // Generate connection point usage statistics
+        Dictionary<string, int> connectionPointStats = new Dictionary<string, int>();
+        foreach (var shape2D in shape2DList.Values)
+        {
+            var organizedPoints = shape2D.GetOrganizedConnectionPoints();
+            foreach (var position in organizedPoints.Keys)
+            {
+                if (!connectionPointStats.ContainsKey(position))
+                {
+                    connectionPointStats[position] = 0;
+                }
+                connectionPointStats[position] += organizedPoints[position].Count;
+            }
+        }
+
+        VisioShapes visioShapes = new VisioShapes
         {
             filename = vsdxPath,
             Shape2D = shape2DList.Values.ToList(),
@@ -228,6 +278,18 @@ public class Program
         $"Shape processing summary:".WriteSuccess();
         $"  Total shapes processed: {totalShapes}".WriteInfo();
         $"  Shapes with connection points: {shapesWithConnections}".WriteInfo();
+        $"  Total connection points: {totalConnectionPoints}".WriteInfo();
+        
+        // Display connection point position distribution
+        if (connectionPointStats.Count > 0)
+        {
+            $"  Connection points by position:".WriteInfo();
+            foreach (var stat in connectionPointStats)
+            {
+                $"    {stat.Key}: {stat.Value}".WriteInfo();
+            }
+        }
+        
         $"  Shapes with layer information: {shapesWithLayers}".WriteInfo();
         //$"  Shapes with no connection points or layers: {shapesWithNoSpecialInfo}".WriteInfo();
         $"  Root 2D shapes in output: {shape2DList.Count}".WriteInfo();
@@ -1182,6 +1244,14 @@ public class Program
             $"No connections found between shapes.".WriteInfo();
         }
         
+        // Analyze connection points usage
+        $"\nAnalyzing connection points usage:".WriteSuccess();
+        var connectionPointsAnalysis = AnalyzeConnectionPointsUsage(shapes2D, shapes1D);
+        $"  Total connection points: {connectionPointsAnalysis.totalPoints}".WriteInfo();
+        $"  Connection points used as source: {connectionPointsAnalysis.sourcePoints}".WriteInfo();
+        $"  Connection points used as target: {connectionPointsAnalysis.targetPoints}".WriteInfo();
+        $"  Unused connection points: {connectionPointsAnalysis.unusedPoints}".WriteInfo();
+        
         // Group shapes by layer
         $"\nAnalyzing layer membership:".WriteSuccess();
         var layerGroups = ShapeAnalyzer.GroupShapesByLayer(allShapes);
@@ -1224,5 +1294,50 @@ public class Program
         }
         
         $"\n".WriteInfo();
+    }
+
+    /// <summary>
+    /// Analyzes how connection points are used in the diagram
+    /// </summary>
+    /// <param name="shapes2D">Collection of 2D shapes</param>
+    /// <param name="shapes1D">Collection of 1D shapes (connectors)</param>
+    /// <returns>Statistics about connection point usage</returns>
+    private static (int totalPoints, int sourcePoints, int targetPoints, int unusedPoints) AnalyzeConnectionPointsUsage(
+        IEnumerable<Shape2D> shapes2D, IEnumerable<Shape1D> shapes1D)
+    {
+        var allPoints = new Dictionary<string, List<ConnectionPoint>>();
+        var usedAsSource = new HashSet<string>();
+        var usedAsTarget = new HashSet<string>();
+        
+        // Collect all connection points
+        foreach (var shape in shapes2D)
+        {
+            if (shape.ConnectionPoints.Count > 0)
+            {
+                allPoints[shape.Id] = shape.ConnectionPoints;
+            }
+        }
+        
+        // Find which connection points are used by connectors
+        foreach (var connector in shapes1D)
+        {
+            if (!string.IsNullOrEmpty(connector.FromShapeId))
+            {
+                usedAsSource.Add($"{connector.FromShapeId}:{connector.FromCell}");
+            }
+            
+            if (!string.IsNullOrEmpty(connector.ToShapeId))
+            {
+                usedAsTarget.Add($"{connector.ToShapeId}:{connector.ToCell}");
+            }
+        }
+        
+        // Calculate statistics
+        int totalPoints = allPoints.Values.Sum(list => list.Count);
+        int sourcePoints = usedAsSource.Count;
+        int targetPoints = usedAsTarget.Count;
+        int unusedPoints = totalPoints - (sourcePoints + targetPoints);
+        
+        return (totalPoints, sourcePoints, targetPoints, unusedPoints);
     }
 }

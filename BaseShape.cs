@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json.Serialization;
 
 namespace VisioShapeExtractor
@@ -56,7 +57,9 @@ namespace VisioShapeExtractor
         /// <summary>
         /// Layer membership string (comma-separated list of layer IDs)
         /// </summary>
-        public string LayerMembership { get; set; } = string.Empty;        /// <summary>
+        public string LayerMembership { get; set; } = string.Empty;
+
+        /// <summary>
         /// Adds a child shape to this shape
         /// </summary>
         /// <param name="shape">The shape to add as a child</param>
@@ -86,6 +89,78 @@ namespace VisioShapeExtractor
             {
                 ShapeData[key] = value;
             }
+        }
+
+        /// <summary>
+        /// Gets a connection point by its ID
+        /// </summary>
+        /// <param name="id">The ID of the connection point to find</param>
+        /// <returns>The connection point, or null if not found</returns>
+        public ConnectionPoint? GetConnectionPointById(string id)
+        {
+            return ConnectionPoints.FirstOrDefault(cp => cp.Id == id);
+        }
+
+        /// <summary>
+        /// Gets the connection point nearest to the specified coordinates
+        /// </summary>
+        /// <param name="x">X coordinate</param>
+        /// <param name="y">Y coordinate</param>
+        /// <returns>The nearest connection point and its distance, or null if no connection points exist</returns>
+        public (ConnectionPoint? point, double distance) GetNearestConnectionPoint(double x, double y)
+        {
+            if (ConnectionPoints == null || ConnectionPoints.Count == 0)
+            {
+                return (null, double.MaxValue);
+            }
+
+            ConnectionPoint? nearest = null;
+            double minDistance = double.MaxValue;
+
+            foreach (var cp in ConnectionPoints)
+            {
+                double dx = cp.X - x;
+                double dy = cp.Y - y;
+                double distance = Math.Sqrt(dx * dx + dy * dy);
+
+                if (distance < minDistance)
+                {
+                    nearest = cp;
+                    minDistance = distance;
+                }
+            }
+
+            return (nearest, minDistance);
+        }
+
+        /// <summary>
+        /// Gets connection points by position (e.g., top, bottom, left, right, center)
+        /// </summary>
+        /// <param name="position">The position to find ("top", "bottom", "left", "right", or "center")</param>
+        /// <returns>List of connection points that match the position</returns>
+        public List<ConnectionPoint> GetConnectionPointsByPosition(string position)
+        {
+            if (ConnectionPoints == null || ConnectionPoints.Count == 0)
+            {
+                return new List<ConnectionPoint>();
+            }
+
+            // This is a simplified implementation; a more robust approach would
+            // analyze the position of connection points relative to the shape's bounds
+            return position?.ToLower() switch
+            {
+                "top" => ConnectionPoints.Where(cp => cp.Id.Contains("top", StringComparison.OrdinalIgnoreCase) || 
+                                                     cp.Name.Contains("top", StringComparison.OrdinalIgnoreCase)).ToList(),
+                "bottom" => ConnectionPoints.Where(cp => cp.Id.Contains("bottom", StringComparison.OrdinalIgnoreCase) || 
+                                                         cp.Name.Contains("bottom", StringComparison.OrdinalIgnoreCase)).ToList(),
+                "left" => ConnectionPoints.Where(cp => cp.Id.Contains("left", StringComparison.OrdinalIgnoreCase) || 
+                                                      cp.Name.Contains("left", StringComparison.OrdinalIgnoreCase)).ToList(),
+                "right" => ConnectionPoints.Where(cp => cp.Id.Contains("right", StringComparison.OrdinalIgnoreCase) || 
+                                                        cp.Name.Contains("right", StringComparison.OrdinalIgnoreCase)).ToList(),
+                "center" => ConnectionPoints.Where(cp => cp.Id.Contains("center", StringComparison.OrdinalIgnoreCase) || 
+                                                        cp.Name.Contains("center", StringComparison.OrdinalIgnoreCase)).ToList(),
+                _ => new List<ConnectionPoint>()
+            };
         }
         
         /// <summary>
